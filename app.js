@@ -19,6 +19,9 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+app.get("/ping", (req, res) => {
+  res.json({ message: "Server is alive" });
+});
 // SQLite setup
 const db = new sqlite3.Database("chat.db");
 db.serialize(() => {
