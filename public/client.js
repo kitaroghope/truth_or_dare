@@ -509,7 +509,8 @@ function setupRoomList() {
             <button class="btn btn-sm btn-outline-primary" onclick="joinRoom('${roomId}')">Join</button>
           </div>
         `;
-        roomsList.appendChild(roomItem);
+        // roomsList.appendChild(roomItem);
+        console.log(roomId);
       });
     }
   });
