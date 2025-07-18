@@ -9,11 +9,37 @@ const sqlite3 = require("sqlite3").verbose();
 const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
 const fs = require("fs");
+const crypto = require("crypto");
 const port = process.env.PORT || 3000;
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Admin authentication
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const adminSessions = new Set();
+
+// Generate session token
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Admin authentication middleware
+function requireAdminAuth(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1] || req.query.token;
+  
+  if (!token || !adminSessions.has(token)) {
+    return res.status(401).json({ error: "Unauthorized. Admin access required." });
+  }
+  
+  next();
+}
 
 // Serve static files
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,6 +47,78 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.get("/ping", (req, res) => {
   res.json({ message: "Server is alive" });
+});
+
+// Admin login endpoint
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    const token = generateSessionToken();
+    adminSessions.add(token);
+    
+    // Auto-expire session after 1 hour
+    setTimeout(() => {
+      adminSessions.delete(token);
+    }, 60 * 60 * 1000);
+    
+    res.json({ 
+      success: true, 
+      token: token,
+      message: "Login successful" 
+    });
+  } else {
+    res.status(401).json({ 
+      success: false, 
+      message: "Invalid credentials" 
+    });
+  }
+});
+
+// Admin logout endpoint
+app.post("/api/admin/logout", (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (token) {
+    adminSessions.delete(token);
+  }
+  res.json({ success: true, message: "Logged out successfully" });
+});
+
+// Admin API endpoints (protected)
+app.get("/api/admin/conversations", requireAdminAuth, (req, res) => {
+  db.all("SELECT * FROM messages ORDER BY timestamp DESC", [], (err, rows) => {
+    if (err) {
+      console.error("Database error:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    // Calculate statistics
+    const stats = {
+      totalMessages: rows.length,
+      totalRooms: new Set(rows.map(row => row.room)).size,
+      totalUsers: new Set(rows.map(row => row.username)).size,
+      totalFiles: rows.filter(row => row.type === 'file' || row.type === 'audio').length
+    };
+
+    res.json({
+      conversations: rows,
+      stats: stats
+    });
+  });
+});
+
+app.delete("/api/admin/conversations", requireAdminAuth, (req, res) => {
+  db.run("DELETE FROM messages", [], function(err) {
+    if (err) {
+      console.error("Database error:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Deleted ${this.changes} messages` 
+    });
+  });
 });
 // SQLite setup
 const db = new sqlite3.Database("chat.db");

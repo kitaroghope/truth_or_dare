@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel - Truth or Dare Chat</title>
+  
+  <!-- Bootstrap CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <style>
+    :root {
+      --primary-color: #6c5ce7;
+      --secondary-color: #fd79a8;
+      --success-color: #00b894;
+      --warning-color: #fdcb6e;
+      --danger-color: #e84393;
+      --dark-color: #2d3436;
+      --light-color: #ddd;
+      --background-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      --border-radius: 15px;
+      --transition: all 0.3s ease;
+    }
+
+    body {
+      background: var(--background-gradient);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--dark-color);
+    }
+
+    .admin-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: var(--border-radius);
+      box-shadow: var(--card-shadow);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .admin-header {
+      text-align: center;
+      margin-bottom: 2rem;
+      color: white;
+    }
+
+    .admin-title {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .conversation-item {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-left: 4px solid var(--primary-color);
+    }
+
+    .conversation-header {
+      display: flex;
+      justify-content: between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+
+    .conversation-meta {
+      font-size: 0.9rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+
+    .message-item {
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin: 0.5rem 0;
+      border-left: 3px solid var(--secondary-color);
+    }
+
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+
+    .message-username {
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+
+    .message-timestamp {
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    .message-content {
+      margin-top: 0.5rem;
+    }
+
+    .message-type {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 12px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+
+    .type-text {
+      background: var(--success-color);
+      color: white;
+    }
+
+    .type-audio {
+      background: var(--warning-color);
+      color: var(--dark-color);
+    }
+
+    .type-file {
+      background: var(--danger-color);
+      color: white;
+    }
+
+    .btn {
+      border-radius: 25px;
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: var(--transition);
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--primary-color);
+      box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
+    }
+
+    .btn-danger {
+      background: var(--danger-color);
+      box-shadow: 0 4px 15px rgba(232, 67, 147, 0.3);
+    }
+
+    .filters {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-input {
+      flex: 1;
+      min-width: 200px;
+      border-radius: 25px;
+      padding: 0.75rem 1.25rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .stats-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      flex: 1;
+      min-width: 150px;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 1rem;
+      border-radius: 10px;
+      text-align: center;
+      border-left: 4px solid var(--success-color);
+    }
+
+    .stat-number {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary-color);
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: var(--primary-color);
+    }
+
+    .loading-spinner {
+      border: 4px solid rgba(108, 92, 231, 0.3);
+      border-radius: 50%;
+      border-top: 4px solid var(--primary-color);
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #666;
+    }
+
+    .empty-state h3 {
+      color: var(--primary-color);
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .filters {
+        flex-direction: column;
+      }
+      
+      .stats-row {
+        flex-direction: column;
+      }
+      
+      .conversation-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      
+      .message-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body class="container-fluid py-4">
+  <!-- Header -->
+  <div class="admin-header">
+    <h1 class="admin-title">🔧 Admin Panel</h1>
+    <p>Truth or Dare Chat</p>
+  </div>
+
+  <!-- Main Panel -->
+  <div class="admin-card">
+    <!-- Controls -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3>💬 All Users</h3>
+      <div>
+        <button class="btn btn-primary me-2" onclick="loadConversations()">
+          🔄 Refresh
+        </button>
+        <button class="btn btn-danger" onclick="clearAllConversations()" style="display: none;" id="clearBtn">
+          🗑️ Clear All
+        </button>
+        <button class="btn btn-outline-secondary" onclick="logout()">
+          🚪 Logout
+        </button>
+        <a href="/" class="btn btn-outline-dark">
+          🏠 Back to Game
+        </a>
+      </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="stats-row" id="statsRow" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-number" id="totalRooms">0</div>
+        <div class="stat-label">Total Rooms</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="totalMessages">0</div>
+        <div class="stat-label">Total Messages</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="totalUsers">0</div>
+        <div class="stat-label">Unique Users</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="totalFiles">0</div>
+        <div class="stat-label">Files Shared</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters" id="filtersRow" style="display: none;">
+      <input type="text" class="filter-input" id="roomFilter" placeholder="Filter by room..." onkeyup="filterConversations()">
+      <input type="text" class="filter-input" id="userFilter" placeholder="Filter by username..." onkeyup="filterConversations()">
+      <select class="filter-input" id="typeFilter" onchange="filterConversations()">
+        <option value="">All message types</option>
+        <option value="text">Text only</option>
+        <option value="audio">Audio only</option>
+        <option value="file">Files only</option>
+      </select>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="loading">
+      <div class="loading-spinner"></div>
+      <p>Loading conversations...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state" style="display: none;">
+      <h3>📭 No Conversations Found</h3>
+      <p>No chat messages have been recorded yet. Start a game to see conversations here!</p>
+    </div>
+
+    <!-- Conversations List -->
+    <div id="conversationsList"></div>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="loginModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-title">🔐 Admin Login</div>
+      <div class="modal-message">
+        Enter your admin credentials to access the conversation panel.
+      </div>
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div style="margin-bottom: 1rem;">
+          <input type="text" id="loginUsername" class="filter-input" placeholder="Username" required style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 1.5rem;">
+          <input type="password" id="loginPassword" class="filter-input" placeholder="Password" required style="width: 100%;">
+        </div>
+        <div class="modal-buttons">
+          <button type="submit" class="modal-btn modal-btn-truth">
+            🔑 Login
+          </button>
+        </div>
+      </form>
+      <div id="loginError" style="color: var(--danger-color); margin-top: 1rem; text-align: center; display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    let allConversations = [];
+    let filteredConversations = [];
+    let authToken = localStorage.getItem('adminToken');
+
+    // Check authentication on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      if (authToken) {
+        hideLoginModal();
+        loadConversations();
+      } else {
+        showLoginModal();
+      }
+    });
+
+    function showLoginModal() {
+      document.getElementById('loginModal').style.display = 'flex';
+    }
+
+    function hideLoginModal() {
+      document.getElementById('loginModal').style.display = 'none';
+    }
+
+    async function handleLogin(event) {
+      event.preventDefault();
+      
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+      const errorDiv = document.getElementById('loginError');
+      
+      try {
+        const response = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          authToken = data.token;
+          localStorage.setItem('adminToken', authToken);
+          hideLoginModal();
+          loadConversations();
+          errorDiv.style.display = 'none';
+        } else {
+          errorDiv.textContent = data.message || 'Login failed';
+          errorDiv.style.display = 'block';
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        errorDiv.textContent = 'Login failed. Please try again.';
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/admin/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
+      
+      authToken = null;
+      localStorage.removeItem('adminToken');
+      showLoginModal();
+      document.getElementById('conversationsList').innerHTML = '';
+      document.getElementById('statsRow').style.display = 'none';
+      document.getElementById('filtersRow').style.display = 'none';
+    }
+
+    async function loadConversations() {
+      showLoading();
+      
+      try {
+        const response = await fetch('/api/admin/conversations', {
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+        
+        if (response.status === 401) {
+          // Token expired or invalid
+          logout();
+          return;
+        }
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch conversations');
+        }
+        
+        const data = await response.json();
+        allConversations = data.conversations || [];
+        filteredConversations = [...allConversations];
+        
+        displayStatistics(data.stats);
+        displayConversations();
+        
+        document.getElementById('statsRow').style.display = 'flex';
+        document.getElementById('filtersRow').style.display = 'flex';
+        document.getElementById('clearBtn').style.display = allConversations.length > 0 ? 'inline-block' : 'none';
+        
+      } catch (error) {
+        console.error('Error loading conversations:', error);
+        showError('Failed to load conversations. Please try again.');
+      }
+    }
+
+    function showLoading() {
+      document.getElementById('loadingState').style.display = 'block';
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('conversationsList').innerHTML = '';
+    }
+
+    function showError(message) {
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('conversationsList').innerHTML = `
+        <div class="alert alert-danger" role="alert">
+          <strong>Error:</strong> ${message}
+        </div>
+      `;
+    }
+
+    function displayStatistics(stats) {
+      document.getElementById('totalRooms').textContent = stats.totalRooms || 0;
+      document.getElementById('totalMessages').textContent = stats.totalMessages || 0;
+      document.getElementById('totalUsers').textContent = stats.totalUsers || 0;
+      document.getElementById('totalFiles').textContent = stats.totalFiles || 0;
+    }
+
+    function displayConversations() {
+      document.getElementById('loadingState').style.display = 'none';
+      
+      if (filteredConversations.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        document.getElementById('conversationsList').innerHTML = '';
+        return;
+      }
+      
+      document.getElementById('emptyState').style.display = 'none';
+      
+      const conversationsList = document.getElementById('conversationsList');
+      conversationsList.innerHTML = '';
+      
+      // Group messages by room
+      const roomGroups = {};
+      filteredConversations.forEach(msg => {
+        if (!roomGroups[msg.room]) {
+          roomGroups[msg.room] = [];
+        }
+        roomGroups[msg.room].push(msg);
+      });
+      
+      // Display each room's conversation
+      Object.keys(roomGroups).forEach(roomId => {
+        const messages = roomGroups[roomId];
+        const conversationDiv = createConversationElement(roomId, messages);
+        conversationsList.appendChild(conversationDiv);
+      });
+    }
+
+    function createConversationElement(roomId, messages) {
+      const div = document.createElement('div');
+      div.className = 'conversation-item';
+      
+      const users = [...new Set(messages.map(m => m.username))];
+      const messageCount = messages.length;
+      const firstMessage = messages[0];
+      const lastMessage = messages[messages.length - 1];
+      
+      div.innerHTML = `
+        <div class="conversation-header">
+          <div>
+            <strong>🏠 Room: ${roomId}</strong>
+            <span class="message-type type-text">${messageCount} messages</span>
+          </div>
+          <div style="font-size: 0.8rem; color: #666;">
+            👥 ${users.join(', ')}
+          </div>
+        </div>
+        <div class="conversation-meta">
+          📅 ${formatDate(firstMessage.timestamp)} - ${formatDate(lastMessage.timestamp)}
+        </div>
+        <div class="messages-container">
+          ${messages.map(msg => createMessageElement(msg)).join('')}
+        </div>
+      `;
+      
+      return div;
+    }
+
+    function createMessageElement(message) {
+      const typeClass = `type-${message.type}`;
+      let content = message.content;
+      
+      // Handle different message types
+      if (message.type === 'audio') {
+        content = `<audio controls src="${message.content}"></audio>`;
+      } else if (message.type === 'file') {
+        const fileName = message.content.split('/').pop();
+        content = `<a href="${message.content}" target="_blank">📎 ${fileName}</a>`;
+      }
+      
+      return `
+        <div class="message-item">
+          <div class="message-header">
+            <span class="message-username">${message.username}</span>
+            <div>
+              <span class="message-type ${typeClass}">${message.type}</span>
+              <span class="message-timestamp">${formatTime(message.timestamp)}</span>
+            </div>
+          </div>
+          <div class="message-content">${content}</div>
+        </div>
+      `;
+    }
+
+    function filterConversations() {
+      const roomFilter = document.getElementById('roomFilter').value.toLowerCase();
+      const userFilter = document.getElementById('userFilter').value.toLowerCase();
+      const typeFilter = document.getElementById('typeFilter').value;
+      
+      filteredConversations = allConversations.filter(msg => {
+        const matchesRoom = !roomFilter || msg.room.toLowerCase().includes(roomFilter);
+        const matchesUser = !userFilter || msg.username.toLowerCase().includes(userFilter);
+        const matchesType = !typeFilter || msg.type === typeFilter;
+        
+        return matchesRoom && matchesUser && matchesType;
+      });
+      
+      displayConversations();
+    }
+
+    async function clearAllConversations() {
+      if (!confirm('Are you sure you want to delete ALL conversations? This action cannot be undone.')) {
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/admin/conversations', {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+        
+        if (response.status === 401) {
+          logout();
+          return;
+        }
+        
+        if (!response.ok) {
+          throw new Error('Failed to clear conversations');
+        }
+        
+        alert('All conversations have been cleared successfully.');
+        loadConversations();
+        
+      } catch (error) {
+        console.error('Error clearing conversations:', error);
+        alert('Failed to clear conversations. Please try again.');
+      }
+    }
+
+    function formatDate(timestamp) {
+      return new Date(timestamp).toLocaleDateString();
+    }
+
+    function formatTime(timestamp) {
+      return new Date(timestamp).toLocaleTimeString();
+    }
+  </script>
+</body>
+</html>
