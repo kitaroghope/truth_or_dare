@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Truth‑or‑Dare Chat Room</title>
+
+  <!-- Meta Description -->
+  <meta name="description" content="Rock, Paper, Scissors meets Truth or Dare! Join friends in an interactive game room." />
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://darewell.onrender.com/" />
+  <meta property="og:title" content="Truth or Dare Chat Room" />
+  <meta property="og:description" content="Rock, Paper, Scissors meets Truth or Dare! Join friends in an interactive game room." />
+  <meta property="og:image" content="https://darewell.onrender.com/images/logo.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="images/logo.png" type="image/png" />
+  
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:url" content="https://darewell.onrender.com/" />
+  <meta property="twitter:title" content="Truth or Dare Chat Room" />
+  <meta property="twitter:description" content="Rock, Paper, Scissors meets Truth or Dare! Join friends in an interactive game room." />
+  <meta property="twitter:image" content="https://darewell.onrender.com/images/logo.png" />
+  <!-- Bootstrap CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <style>
+    /* ---- Custom Variables ---- */
+    :root {
+      --primary-color: #6c5ce7;
+      --secondary-color: #fd79a8;
+      --success-color: #00b894;
+      --warning-color: #fdcb6e;
+      --danger-color: #e84393;
+      --dark-color: #2d3436;
+      --light-color: #ddd;
+      --background-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      --border-radius: 15px;
+      --transition: all 0.3s ease;
+    }
+
+    /* ---- Global Styles ---- */
+    body {
+      background: var(--background-gradient);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--dark-color);
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* ---- Card Styles ---- */
+    .game-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: var(--border-radius);
+      box-shadow: var(--card-shadow);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* ---- Button Enhancements ---- */
+    .btn {
+      border-radius: 25px;
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: var(--transition);
+      border: none;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      transition: left 0.5s;
+    }
+
+    .btn:hover::before {
+      left: 100%;
+    }
+
+    .btn-primary {
+      background: var(--primary-color);
+      box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
+    }
+
+    .btn-success {
+      background: var(--success-color);
+      box-shadow: 0 4px 15px rgba(0, 184, 148, 0.3);
+    }
+
+    .btn-warning {
+      background: var(--warning-color);
+      color: var(--dark-color);
+      box-shadow: 0 4px 15px rgba(253, 203, 110, 0.3);
+    }
+
+    .btn-danger {
+      background: var(--danger-color);
+      box-shadow: 0 4px 15px rgba(232, 67, 147, 0.3);
+    }
+
+    .btn-outline-dark {
+      border: 2px solid var(--dark-color);
+      color: var(--dark-color);
+      background: transparent;
+    }
+
+    .btn-outline-dark:hover {
+      background: var(--dark-color);
+      color: white;
+      transform: translateY(-2px);
+    }
+
+    /* ---- Form Styles ---- */
+    .form-control {
+      border-radius: 25px;
+      padding: 0.75rem 1.25rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.9);
+      transition: var(--transition);
+    }
+
+    .form-control:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 0.2rem rgba(108, 92, 231, 0.25);
+      background: white;
+    }
+
+    /* ---- Chat Styles ---- */
+    #chatLog {
+      height: 350px;
+      overflow-y: auto;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 1rem;
+      border-radius: var(--border-radius);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 0.75rem 1rem;
+      border-radius: 20px;
+      margin-bottom: 0.75rem;
+      clear: both;
+      word-wrap: break-word;
+      position: relative;
+      animation: messageSlide 0.3s ease;
+    }
+
+    @keyframes messageSlide {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .from-me {
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      color: white;
+      float: right;
+      text-align: right;
+      box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+    }
+
+    .from-them {
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--dark-color);
+      float: left;
+      text-align: left;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    /* ---- Game Section Styles ---- */
+    .rps-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .rps-button {
+      font-size: 1.5rem;
+      padding: 1rem 2rem;
+      border-radius: 50px;
+      border: 3px solid var(--primary-color);
+      background: white;
+      color: var(--primary-color);
+      transition: var(--transition);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .rps-button:hover {
+      background: var(--primary-color);
+      color: white;
+      transform: scale(1.05);
+      box-shadow: 0 8px 25px rgba(108, 92, 231, 0.4);
+    }
+
+    /* ---- Header Styles ---- */
+    .app-header {
+      text-align: center;
+      margin-bottom: 2rem;
+      color: white;
+    }
+
+    .app-title {
+      font-size: 3rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .app-subtitle {
+      font-size: 1.2rem;
+      opacity: 0.9;
+      margin-bottom: 0;
+    }
+
+    /* ---- Room List Styles ---- */
+    .room-item {
+      cursor: pointer;
+      transition: var(--transition);
+      border-radius: var(--border-radius);
+      padding: 1rem;
+      margin-bottom: 0.5rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .room-item:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: translateX(5px);
+    }
+
+    /* ---- Result Message Styles ---- */
+    #resultMessage {
+      font-size: 1.25rem;
+      font-weight: 600;
+      padding: 1rem;
+      border-radius: var(--border-radius);
+      text-align: center;
+      margin: 1rem 0;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .result-win {
+      background: linear-gradient(135deg, var(--success-color), #55efc4);
+      color: white;
+      box-shadow: 0 4px 15px rgba(0, 184, 148, 0.3);
+    }
+
+    .result-lose {
+      background: linear-gradient(135deg, var(--danger-color), #fd79a8);
+      color: white;
+      box-shadow: 0 4px 15px rgba(232, 67, 147, 0.3);
+    }
+
+    .result-tie {
+      background: linear-gradient(135deg, var(--warning-color), #fab1a0);
+      color: var(--dark-color);
+      box-shadow: 0 4px 15px rgba(253, 203, 110, 0.3);
+    }
+
+    /* ---- Responsive Design ---- */
+    @media (max-width: 768px) {
+      .app-title {
+        font-size: 2rem;
+      }
+      
+      .rps-buttons {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .rps-button {
+        width: 100%;
+        max-width: 300px;
+      }
+      
+      .container {
+        padding: 1rem;
+      }
+      
+      /* Fix chat input overflow on mobile */
+      .chat-input-container {
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        padding: 0.75rem;
+      }
+      
+      .chat-input-container input[type="text"] {
+        min-width: 0;
+        flex-basis: 100%;
+        margin-bottom: 0.5rem;
+        padding: 0.75rem;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      
+      .chat-input-container input[type="text"]:focus {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      
+      .chat-attachment-btn, .chat-record-btn, .chat-send-btn {
+        width: 45px;
+        height: 45px;
+        font-size: 1.2rem;
+        flex-shrink: 0;
+      }
+      
+      /* Adjust chat log height for mobile */
+      #chatLog {
+        height: 250px;
+      }
+      
+      /* Modal adjustments for mobile */
+      .modal-content {
+        margin: 1rem;
+        padding: 1.5rem;
+      }
+      
+      .modal-buttons {
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      
+      .modal-btn {
+        width: 100%;
+        min-width: unset;
+      }
+    }
+
+    /* ---- Loading Animation ---- */
+    .loading-spinner {
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top: 4px solid var(--primary-color);
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ---- Audio/File Message Styles ---- */
+    audio {
+      width: 100%;
+      max-width: 200px;
+      height: 32px;
+      border-radius: 16px;
+    }
+
+    .file-message {
+      padding: 0.5rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 0.25rem 0;
+    }
+
+    .file-message a {
+      color: inherit;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .file-message a:hover {
+      text-decoration: underline;
+    }
+
+    /* ---- WhatsApp-style Chat Input ---- */
+    .chat-input-container {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 25px;
+      padding: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .chat-input-container input[type="text"] {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 0.5rem;
+      border-radius: 0;
+      outline: none;
+      font-size: 1rem;
+    }
+
+    .chat-input-container input[type="text"]:focus {
+      box-shadow: none;
+      border: none;
+    }
+
+    .chat-attachment-btn {
+      background: var(--primary-color);
+      border: none;
+      border-radius: 50%;
+      width: 35px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+      color: white;
+      font-size: 1.1rem;
+    }
+
+    .chat-attachment-btn:hover {
+      background: var(--secondary-color);
+      transform: scale(1.1);
+    }
+
+    .chat-send-btn {
+      background: var(--success-color);
+      border: none;
+      border-radius: 50%;
+      width: 35px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+      color: white;
+      font-size: 1.1rem;
+    }
+
+    .chat-send-btn:hover {
+      background: var(--success-color);
+      transform: scale(1.1);
+      box-shadow: 0 2px 8px rgba(0, 184, 148, 0.4);
+    }
+
+    .chat-send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .chat-record-btn {
+      background: var(--danger-color);
+      border: none;
+      border-radius: 50%;
+      width: 35px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+      color: white;
+      font-size: 1.1rem;
+    }
+
+    .chat-record-btn:hover {
+      background: var(--danger-color);
+      transform: scale(1.1);
+      box-shadow: 0 2px 8px rgba(232, 67, 147, 0.4);
+    }
+
+    .chat-record-btn.recording {
+      animation: pulse 1s infinite;
+    }
+    
+    .chat-record-btn.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      background: #ccc;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    .file-input-hidden {
+      display: none;
+    }
+
+    .recording-indicator {
+      background: rgba(232, 67, 147, 0.1);
+      border-radius: 20px;
+      padding: 0.5rem 1rem;
+      margin: 0.5rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--danger-color);
+      font-weight: 600;
+    }
+
+    .recording-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--danger-color);
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+
+    /* ---- Smooth transitions for show/hide ---- */
+    #rpsSection, #chatSection, #chatInputContainer, #newRoundContainer {
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    #rpsSection.hiding, #chatSection.hiding, 
+    #chatInputContainer.hiding, #newRoundContainer.hiding {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+
+    /* ---- Truth or Dare Modal ---- */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .modal-content {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 2rem;
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { 
+        opacity: 0;
+        transform: translateY(-20px) scale(0.9);
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .modal-title {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--primary-color);
+      margin-bottom: 1rem;
+    }
+
+    .modal-message {
+      font-size: 1.1rem;
+      color: var(--dark-color);
+      margin-bottom: 2rem;
+      line-height: 1.5;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .modal-btn {
+      padding: 1rem 2rem;
+      border: none;
+      border-radius: 25px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      min-width: 120px;
+    }
+
+    .modal-btn-truth {
+      background: var(--warning-color);
+      color: var(--dark-color);
+      box-shadow: 0 4px 15px rgba(253, 203, 110, 0.3);
+    }
+
+    .modal-btn-truth:hover {
+      background: #e6b800;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(253, 203, 110, 0.4);
+    }
+
+    .modal-btn-dare {
+      background: var(--danger-color);
+      color: white;
+      box-shadow: 0 4px 15px rgba(232, 67, 147, 0.3);
+    }
+
+    .modal-btn-dare:hover {
+      background: #d63384;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(232, 67, 147, 0.4);
+    }
+
+    .waiting-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    .waiting-dots {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .waiting-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      animation: bounce 1.4s infinite ease-in-out;
+    }
+
+    .waiting-dot:nth-child(1) { animation-delay: -0.32s; }
+    .waiting-dot:nth-child(2) { animation-delay: -0.16s; }
+    .waiting-dot:nth-child(3) { animation-delay: 0s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+      40% { transform: scale(1.2); opacity: 1; }
+    }
+  </style>
+</head>
+<body class="container py-4">
+  <!-- ========== APP HEADER ========== -->
+  <div class="app-header">
+    <h1 class="app-title">🎲 Truth or Dare</h1>
+    <p class="app-subtitle">Rock, Paper, Scissors meets Truth or Dare!</p>
+  </div>
+
+  <!-- ========== SETUP / LOBBY ========== -->
+  <div id="setup" class="game-card">
+    <h3 class="mb-4 text-center">🚪 Join or Create a Room</h3>
+
+    <!-- Hidden room input for invite links -->
+    <input id="groupInput" type="hidden" />
+
+    <!-- Username row -->
+    <div id="usernameRow" class="d-flex mb-4">
+      <input id="usernameInput" class="form-control me-3" placeholder="Enter your username" />
+      <button id="saveUsernameBtn" class="btn btn-primary">Save Name</button>
+    </div>
+
+    <!-- Room list (populated via client.js) -->
+    <h5 class="mb-3">🏠 Available Rooms</h5>
+    <ul id="roomsList" class="list-group mb-4"></ul>
+
+    <!-- Create room button -->
+    <button id="createRoomBtn" class="btn btn-success w-100 mb-3">
+      ➕ Create New Room
+    </button>
+  </div>
+
+  <!-- ========== GAME UI ========== -->
+  <div id="gameUI" style="display:none">
+    <div class="game-card">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 id="roomLabel" class="mb-0"></h4>
+        <button class="btn btn-outline-danger btn-sm" onclick="location.href='/'">
+          🚪 Leave Room
+        </button>
+      </div>
+      <div id="receiverName" class="mb-3 text-center fs-5"></div>
+
+      <!-- RPS SECTION -->
+      <div id="rpsSection" class="mb-4">
+        <h5 class="text-center mb-4">⚡ Make Your Choice</h5>
+        <div class="rps-buttons">
+          <button class="rps-button" onclick="makeChoice('rock')">🪨 Rock</button>
+          <button class="rps-button" onclick="makeChoice('paper')">📄 Paper</button>
+          <button class="rps-button" onclick="makeChoice('scissors')">✂️ Scissors</button>
+        </div>
+        <div id="resultMessage" class="mt-4"></div>
+        <!-- Truth/Dare now handled by modal -->
+        <div id="truthDarePrompt" style="display:none"></div>
+      </div>
+
+      <!-- CHAT SECTION -->
+      <div id="chatSection" class="mt-4">
+        <h5 class="text-center mb-3">💬 Chat</h5>
+        <div id="chatLog"></div>
+        
+        <!-- Recording Indicator -->
+        <div id="recordingIndicator" class="recording-indicator" style="display: none;">
+          <div class="recording-dot"></div>
+          <span id="recordingTimer">Recording...</span>
+          <button class="btn btn-sm btn-outline-danger ms-auto" onclick="stopRecording()">
+            ⏹️ Stop
+          </button>
+        </div>
+        
+        <!-- WhatsApp-style Input -->
+        <div class="chat-input-container" id="chatInputContainer">
+          <!-- Hidden file input -->
+          <input type="file" id="fileInput" class="file-input-hidden" accept="image/*,video/*,audio/*" />
+          
+          <!-- Attachment button -->
+          <button class="chat-attachment-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">
+            📎
+          </button>
+          
+          <!-- Text input -->
+          <input type="text" id="chatInput" placeholder="Type a message..." />
+          
+          <!-- Record button -->
+          <button class="chat-record-btn" id="recordBtn" onclick="toggleRecording()" title="Record voice note">
+            🎤
+          </button>
+          
+          <!-- Send button -->
+          <button class="chat-send-btn" onclick="sendMessage()" title="Send message">
+            ➤
+          </button>
+        </div>
+      </div>
+
+      <div class="text-center" id="newRoundContainer">
+        <button class="btn btn-secondary btn-lg" onclick="startNewRound()">
+          🔄 Start New Round
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Truth or Dare Modal -->
+  <div id="truthDareModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-title">🎯 Choose Your Challenge</div>
+      <div class="modal-message" id="modalMessage">
+        You lost the round! Choose Truth or Dare to continue.
+      </div>
+      <div id="modalButtons" class="modal-buttons">
+        <button class="modal-btn modal-btn-truth" onclick="selectTruthDare('Truth')">
+          💭 Truth
+        </button>
+        <button class="modal-btn modal-btn-dare" onclick="selectTruthDare('Dare')">
+          🎯 Dare
+        </button>
+      </div>
+      <div id="modalWaiting" class="waiting-indicator" style="display: none;">
+        <span>Waiting for opponent's choice</span>
+        <div class="waiting-dots">
+          <div class="waiting-dot"></div>
+          <div class="waiting-dot"></div>
+          <div class="waiting-dot"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Socket.IO & client script -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
