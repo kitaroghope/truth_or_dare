@@ -640,3 +640,111 @@ function checkMicrophoneSupport() {
     }
   }, { once: true });
 }
+
+function inviteToRoom() {
+  if (!room) {
+    alert('No room to invite to!');
+    return;
+  }
+  
+  const inviteUrl = `${window.location.origin}?group=${room}`;
+  
+  // Try to use the Web Share API first (native sharing)
+  if (navigator.share) {
+    navigator.share({
+      title: '🎲 Truth or Dare Game',
+      text: 'Join my Truth or Dare game room!',
+      url: inviteUrl
+    }).then(() => {
+      console.log('Successfully shared invite link');
+    }).catch((error) => {
+      console.log('Error sharing:', error);
+      // Fallback to clipboard copy if sharing was cancelled or failed
+      fallbackToClipboard(inviteUrl);
+    });
+  } else {
+    // Fallback for browsers that don't support Web Share API
+    fallbackToClipboard(inviteUrl);
+  }
+}
+
+function fallbackToClipboard(inviteUrl) {
+  // Try to use the modern clipboard API
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      alert('Invite link copied to clipboard!\n\nShare this link with others to invite them to your room.');
+    }).catch(() => {
+      // Fallback to manual copy modal
+      showInviteLink(inviteUrl);
+    });
+  } else {
+    // Fallback for browsers that don't support clipboard API
+    showInviteLink(inviteUrl);
+  }
+}
+
+function showInviteLink(inviteUrl) {
+  // Create a temporary modal-like dialog
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-title">📤 Invite Link</div>
+      <div class="modal-message">
+        Share this link with others to invite them to your room:
+        <br><br>
+        <input type="text" value="${inviteUrl}" readonly 
+               style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.9rem; background: #f8f9fa;" 
+               onclick="this.select()" />
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-truth" onclick="copyInviteLink('${inviteUrl}')">
+          📋 Copy Link
+        </button>
+        <button class="modal-btn modal-btn-dare" onclick="this.parentElement.parentElement.parentElement.remove()">
+          ✅ Done
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  // Auto-select the URL text
+  const input = modal.querySelector('input');
+  setTimeout(() => input.select(), 100);
+}
+
+function copyInviteLink(url) {
+  // Try clipboard API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      alert('Link copied to clipboard!');
+    }).catch(() => {
+      // Fallback to document.execCommand
+      fallbackCopyTextToClipboard(url);
+    });
+  } else {
+    // Fallback for older browsers
+    fallbackCopyTextToClipboard(url);
+  }
+}
+
+function fallbackCopyTextToClipboard(text) {
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.style.position = 'fixed';
+  textArea.style.left = '-999999px';
+  textArea.style.top = '-999999px';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  
+  try {
+    document.execCommand('copy');
+    alert('Link copied to clipboard!');
+  } catch (err) {
+    alert('Unable to copy link automatically. Please copy it manually.');
+  }
+  
+  document.body.removeChild(textArea);
+}

@@ -713,9 +713,14 @@
     <div class="game-card">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 id="roomLabel" class="mb-0"></h4>
-        <button class="btn btn-outline-danger btn-sm" onclick="location.href='/'">
-          🚪 Leave Room
-        </button>
+        <div class="btn-group">
+          <button class="btn btn-outline-primary btn-sm" onclick="inviteToRoom()">
+            📤 Invite
+          </button>
+          <button class="btn btn-outline-danger btn-sm" onclick="location.href='/'">
+            🚪 Leave Room
+          </button>
+        </div>
       </div>
       <div id="receiverName" class="mb-3 text-center fs-5"></div>
 
