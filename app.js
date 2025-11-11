@@ -1,5 +1,9 @@
 // Project: rps_socket_room_links + chat with SQLite + file & voice note support
 // Dependencies: express, socket.io, sqlite3, uuid, multer
+// Enhanced with: JWT auth, Drizzle ORM, multi-database support
+
+// Load environment variables
+require('dotenv').config();
 
 const express = require("express");
 const http = require("http");
@@ -10,20 +14,68 @@ const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
 const fs = require("fs");
 const crypto = require("crypto");
+const cors = require("cors");
+
+// Import new modules
+const { initDatabase, runMigrations } = require('./db');
+const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
+const friendsRoutes = require('./routes/friends');
+const gamesRoutes = require('./routes/games');
+const notificationsRoutes = require('./routes/notifications');
+const { heartbeatOnlineUsers } = require('./utils/onlineStatus');
+const { authenticateSocket, setupSocketHandlers } = require('./socket');
+const { apiLimiter } = require('./middleware/rateLimiter');
+const { securityHeaders, sanitizeQueryParams } = require('./middleware/validation');
+
 const port = process.env.PORT || 3000;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// CORS Configuration
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+  : ['http://localhost:3000'];
+
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
+}));
+
+// Initialize Socket.io with CORS
+const io = new Server(server, {
+  cors: {
+    origin: corsOrigins,
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
+});
+
+// Apply Socket.io authentication middleware
+io.use(authenticateSocket);
+
+// Setup new Socket.io event handlers (for authenticated mobile/web clients)
+setupSocketHandlers(io);
 
 // Admin authentication
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const adminSessions = new Set();
+
+// Security middleware
+app.use(securityHeaders);
+app.use(sanitizeQueryParams);
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Apply general API rate limiting to all /api routes
+app.use('/api/', apiLimiter);
+
+// Make adminSessions available to middleware
+app.set('adminSessions', adminSessions);
 
 // Generate session token
 function generateSessionToken() {
@@ -44,6 +96,13 @@ function requireAdminAuth(req, res, next) {
 // Serve static files
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// Mount API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/friends', friendsRoutes);
+app.use('/api/games', gamesRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 app.get("/ping", (req, res) => {
   res.json({ message: "Server is alive" });
@@ -165,146 +224,283 @@ app.post("/upload/:room/:username", upload.single("file"), (req, res) => {
   );
 });
 
-const games = {}; // { roomName: { users: {}, choices: {}, chatVisible: false, gameState: 'waiting', winner: null, loser: null, truthDareSelection: null } }
+// Import game state sync utilities
+const {
+  loadGameState,
+  saveGameState,
+  debouncedSaveGameState,
+  createOrUpdateGame,
+} = require('./utils/gameStateSync');
+
+// Create debounced save function
+const scheduleSaveGameState = debouncedSaveGameState(500);
+
+// In-memory game state - NOW USERNAME-BASED
+// Structure: { [roomCode]: { users: { [username]: socketId }, choices: { [username]: choice }, winner: username, loser: username, ... } }
+const games = {};
+
+// Helper functions for username ↔ socket mapping
+function getSocketIdByUsername(room, username) {
+  if (!games[room] || !games[room].users) return null;
+  return games[room].users[username] || null;
+}
+
+function getUsernameBySocketId(room, socketId) {
+  if (!games[room] || !games[room].users) return null;
+  return Object.keys(games[room].users).find(username => games[room].users[username] === socketId) || null;
+}
+
+function updateSocketMapping(room, username, newSocketId) {
+  if (!games[room]) return false;
+  games[room].users[username] = newSocketId;
+  return true;
+}
+
+// Helper function to save system messages to database
+function saveSystemMessage(room, content) {
+  const id = uuidv4();
+  db.run(
+    "INSERT INTO messages (id, room, username, content, type) VALUES (?, ?, ?, ?, ?)",
+    [id, room, "System", content, "system"],
+    (err) => {
+      if (err) {
+        console.error('❌ Error saving system message:', err);
+      }
+    }
+  );
+  return { id, room, username: "System", content, type: "system" };
+}
 
 io.on("connection", (socket) => {
-  socket.on("joinRoom", ({ room, username }) => {
+  socket.on("joinRoom", async ({ room, username }) => {
+    // Step 1: Try to load existing game from database
+    const dbGame = await loadGameState(room);
+
     if (!games[room]) {
-      games[room] = { 
-        users: {}, 
-        choices: {}, 
-        chatVisible: false, 
-        gameState: 'waiting', 
-        winner: null, 
-        loser: null, 
+      // Initialize in-memory state
+      games[room] = {
+        users: {},           // { [username]: socketId }
+        choices: {},         // { [username]: choice }
+        chatVisible: false,
+        gameState: 'waiting',
+        gamePhase: 'lobby',
+        winner: null,        // username, not socketId
+        loser: null,         // username, not socketId
         truthDareSelection: null,
-        awaitingTruthDare: false 
+        awaitingTruthDare: false
       };
+
+      // If game exists in database, restore state
+      if (dbGame) {
+        const dbState = dbGame.gameState || {};
+        games[room].chatVisible = dbState.chatVisible || false;
+        games[room].gameState = dbGame.status === 'waiting' ? 'waiting' : 'in_progress';
+        games[room].gamePhase = dbGame.gamePhase || 'lobby';
+        games[room].winner = dbState.winner || null;
+        games[room].loser = dbState.loser || null;
+        games[room].truthDareSelection = dbState.truthDareSelection || null;
+        games[room].awaitingTruthDare = dbState.awaitingTruthDare || false;
+        games[room].choices = dbState.choices || {};
+
+        console.log(`✅ Restored game state for room ${room} from database (phase: ${dbGame.gamePhase})`);
+      }
     }
 
-    // Check if user is rejoining (same username exists)
-    const existingSocketId = Object.keys(games[room].users).find(id => games[room].users[id] === username);
-    const isRejoining = existingSocketId !== undefined;
-    
-    if (isRejoining) {
-      // User is rejoining - update socket ID but keep game state
-      delete games[room].users[existingSocketId];
-      delete games[room].choices[existingSocketId];
-      
-      // Update winner/loser references if they were the rejoining user
-      if (games[room].winner === existingSocketId) {
-        games[room].winner = socket.id;
-      }
-      if (games[room].loser === existingSocketId) {
-        games[room].loser = socket.id;
-      }
-    } else {
-      // New user joining
-      const nameExists = Object.values(games[room].users).includes(username);
-      if (nameExists) {
-        socket.emit("nameExists");
-        return;
-      }
+    // Check if username already exists (rejoining)
+    const isRejoining = games[room].users.hasOwnProperty(username);
 
+    if (!isRejoining) {
+      // New user joining - check for duplicates and room capacity
       const userCount = Object.keys(games[room].users).length;
+
       if (userCount >= 2) {
         socket.emit("roomFull");
         return;
       }
     }
 
-    games[room].users[socket.id] = username;
+    // Update socket mapping (works for both new users and rejoining)
+    games[room].users[username] = socket.id;
     socket.join(room);
-    io.to(room).emit("playerUpdate", Object.values(games[room].users));
+
+    // Notify all players of updated user list
+    const userList = Object.keys(games[room].users);
+    io.to(room).emit("playerUpdate", userList);
 
     // Send previous messages
     db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp ASC", [room], (err, rows) => {
       if (!err) socket.emit("previousMessages", rows);
     });
 
-    // Send current game state including truth/dare modal state
+    // Send full state restoration to rejoining/new user
+    const currentState = {
+      gamePhase: games[room].gamePhase,
+      gameState: games[room].gameState,
+      chatVisible: games[room].chatVisible,
+      awaitingTruthDare: games[room].awaitingTruthDare,
+      winner: games[room].winner,
+      loser: games[room].loser,
+      truthDareSelection: games[room].truthDareSelection,
+      userChoice: games[room].choices[username] || null,
+      isWinner: games[room].winner === username,
+      isLoser: games[room].loser === username,
+    };
+
+    // Emit full state restoration
+    socket.emit("fullStateRestoration", currentState);
+
+    // Show truth/dare modal if appropriate
     if (games[room].awaitingTruthDare) {
-      const isLoser = games[room].loser === socket.id;
-      const isWinner = games[room].winner === socket.id;
-      
+      const isLoser = games[room].loser === username;
+      const isWinner = games[room].winner === username;
+
       if (isLoser && !games[room].truthDareSelection) {
         socket.emit("showTruthDareModal", { type: "choose" });
       } else if (isWinner && !games[room].truthDareSelection) {
         socket.emit("showTruthDareModal", { type: "waiting" });
       }
     }
-    
-    // Send current game state to rejoining user
-    if (isRejoining) {
-      socket.emit("chatVisible", games[room].chatVisible);
-      
-      // If game is finished, show appropriate state
-      if (games[room].chatVisible && !games[room].awaitingTruthDare) {
-        socket.emit("gameStateUpdate", { state: "finished" });
-      }
+
+    // Create or update game in database
+    if (!dbGame) {
+      await createOrUpdateGame(room, username, games[room]);
     }
 
-    socket.on("makeChoice", (choice) => {
-      games[room].choices[socket.id] = choice;
+    // Save current state to database (debounced)
+    scheduleSaveGameState(room, games[room]);
+
+    socket.on("makeChoice", async (choice) => {
+      // Get username from socket ID
+      const username = getUsernameBySocketId(room, socket.id);
+      if (!username) {
+        console.error('❌ makeChoice: Could not find username for socket', socket.id);
+        return;
+      }
+
+      // Store choice using username as key
+      games[room].choices[username] = choice;
+      games[room].gamePhase = 'choosing';
+
+      // Save system message for choice
+      const choiceMsg = saveSystemMessage(room, `${username} chose ${choice}`);
+      io.to(room).emit("newMessage", choiceMsg);
+
+      // Check if both players have made their choices
       if (Object.keys(games[room].choices).length === 2) {
-        const [id1, id2] = Object.keys(games[room].choices);
-        const c1 = games[room].choices[id1];
-        const c2 = games[room].choices[id2];
+        const [username1, username2] = Object.keys(games[room].choices);
+        const c1 = games[room].choices[username1];
+        const c2 = games[room].choices[username2];
 
         const rules = { rock: "scissors", scissors: "paper", paper: "rock" };
         let result;
 
         if (c1 === c2) {
-          result = { [id1]: "It's a tie", [id2]: "It's a tie" };
+          // Tie - reset choices and stay in choosing phase
+          result = { [username1]: "It's a tie", [username2]: "It's a tie" };
           games[room].choices = {};
+          games[room].gamePhase = 'lobby';
+
+          // Get socket IDs for sending results
+          const socketId1 = getSocketIdByUsername(room, username1);
+          const socketId2 = getSocketIdByUsername(room, username2);
+
+          // Save system message for tie
+          const tieMsg = saveSystemMessage(room, `${username1}: It's a tie`);
+          io.to(room).emit("newMessage", tieMsg);
+
+          if (socketId1) io.to(socketId1).emit("result", { message: result[username1] });
+          if (socketId2) io.to(socketId2).emit("result", { message: result[username2] });
         } else {
-          const winner = rules[c1] === c2 ? id1 : id2;
-          const loser = winner === id1 ? id2 : id1;
+          // Determine winner and loser (store usernames, not socket IDs)
+          const winnerUsername = rules[c1] === c2 ? username1 : username2;
+          const loserUsername = winnerUsername === username1 ? username2 : username1;
+
           result = {
-            [winner]: "You win! You may ask a truth or give a dare.",
-            [loser]: "You lose! Choose Truth or Dare.",
+            [winnerUsername]: "You win! You may ask a truth or give a dare.",
+            [loserUsername]: "You lose! Choose Truth or Dare.",
           };
-          
-          // Store winner and loser for Truth or Dare modal
-          games[room].winner = winner;
-          games[room].loser = loser;
+
+          // Update game state with winner/loser (usernames)
+          games[room].winner = winnerUsername;
+          games[room].loser = loserUsername;
           games[room].awaitingTruthDare = true;
           games[room].truthDareSelection = null;
-          
-          // Show modal to loser, waiting state to winner
-          io.to(loser).emit("showTruthDareModal", { type: "choose" });
-          io.to(winner).emit("showTruthDareModal", { type: "waiting" });
-        }
+          games[room].gamePhase = 'result';
 
-        io.to(id1).emit("result", { message: result[id1] });
-        io.to(id2).emit("result", { message: result[id2] });
+          // Get socket IDs for emitting events
+          const winnerSocketId = getSocketIdByUsername(room, winnerUsername);
+          const loserSocketId = getSocketIdByUsername(room, loserUsername);
 
-        if (c1 !== c2) {
+          // Save system messages for win/lose
+          const winMsg = saveSystemMessage(room, `${winnerUsername}: You win! You may ask a truth or give a dare.`);
+          const loseMsg = saveSystemMessage(room, `${loserUsername}: You lose! Choose Truth or Dare.`);
+          io.to(room).emit("newMessage", winMsg);
+          io.to(room).emit("newMessage", loseMsg);
+
+          // Send results
+          if (winnerSocketId) io.to(winnerSocketId).emit("result", { message: result[winnerUsername] });
+          if (loserSocketId) io.to(loserSocketId).emit("result", { message: result[loserUsername] });
+
+          // Show modals
+          if (loserSocketId) io.to(loserSocketId).emit("showTruthDareModal", { type: "choose" });
+          if (winnerSocketId) io.to(winnerSocketId).emit("showTruthDareModal", { type: "waiting" });
+
+          // Enable chat
           games[room].chatVisible = true;
           io.to(room).emit("chatVisible", true);
+
+          // Update phase to truth/dare selection
+          games[room].gamePhase = 'truth_dare_selection';
         }
+
+        // Clear choices after round
         games[room].choices = {};
+
+        // Persist state to database
+        scheduleSaveGameState(room, games[room]);
       }
     });
 
-    socket.on("truthOrDare", (selection) => {
-      if (games[room].awaitingTruthDare && games[room].loser === socket.id) {
+    socket.on("truthOrDare", async (selection) => {
+      // Get username from socket ID
+      const username = getUsernameBySocketId(room, socket.id);
+      if (!username) {
+        console.error('❌ truthOrDare: Could not find username for socket', socket.id);
+        return;
+      }
+
+      // Check if this user is the loser and truth/dare is awaited
+      if (games[room].awaitingTruthDare && games[room].loser === username) {
         games[room].truthDareSelection = selection;
         games[room].awaitingTruthDare = false;
-        
+        games[room].gamePhase = 'chat';
+
+        // Save system message for truth/dare selection
+        const tdMsg = saveSystemMessage(room, `${username} chose <strong>${selection}</strong>`);
+        io.to(room).emit("newMessage", tdMsg);
+
         // Hide modal for both players
         io.to(room).emit("hideTruthDareModal");
-        
+
         // Notify both players of the selection
         io.to(room).emit("truthOrDareResponse", {
-          username: games[room].users[socket.id],
+          username: username,
           selection,
         });
+
+        // Persist state to database
+        scheduleSaveGameState(room, games[room]);
       }
     });
 
     socket.on("sendMessage", (msg) => {
-      const username = games[room].users[socket.id];
+      // Get username from socket ID
+      const username = getUsernameBySocketId(room, socket.id);
+      if (!username) {
+        console.error('❌ sendMessage: Could not find username for socket', socket.id);
+        return;
+      }
+
       const id = uuidv4();
       db.run("INSERT INTO messages (id, room, username, content, type) VALUES (?, ?, ?, ?, ?)", [id, room, username, msg, "text"], (err) => {
         if (!err) {
@@ -313,29 +509,54 @@ io.on("connection", (socket) => {
       });
     });
 
-    socket.on("startNewRound", () => {
+    socket.on("startNewRound", async () => {
+      // Reset game state for new round
       games[room].chatVisible = false;
       games[room].awaitingTruthDare = false;
       games[room].winner = null;
       games[room].loser = null;
       games[room].truthDareSelection = null;
       games[room].gameState = 'waiting';
+      games[room].gamePhase = 'lobby';
       games[room].choices = {}; // Clear any pending choices
+
+      // Notify all players
       io.to(room).emit("chatVisible", false);
       io.to(room).emit("hideTruthDareModal");
-      io.to(room).emit("clearResultMessage"); // Clear result message for all players
+      io.to(room).emit("clearResultMessage");
       io.to(room).emit("gameStateUpdate", { state: "waiting" });
+
+      // Persist clean state to database
+      scheduleSaveGameState(room, games[room]);
     });
 
     socket.on("disconnect", () => {
-      if (games[room]) {
-        delete games[room].users[socket.id];
-        delete games[room].choices[socket.id];
-        if (Object.keys(games[room].users).length === 0) {
-          delete games[room];
-        } else {
-          io.to(room).emit("playerUpdate", Object.values(games[room].users));
-        }
+      if (!games[room]) return;
+
+      // Get username from socket ID
+      const username = getUsernameBySocketId(room, socket.id);
+      if (!username) return;
+
+      // Remove socket mapping but keep username in users list
+      // This allows the user to reconnect and restore their state
+      delete games[room].users[username];
+
+      // Notify remaining players
+      const remainingUsers = Object.keys(games[room].users);
+      io.to(room).emit("playerUpdate", remainingUsers);
+
+      // If room is now empty, schedule cleanup after timeout
+      if (remainingUsers.length === 0) {
+        setTimeout(() => {
+          // Check again if room is still empty
+          if (games[room] && Object.keys(games[room].users).length === 0) {
+            console.log(`🧹 Cleaning up empty room: ${room}`);
+            delete games[room];
+          }
+        }, 5 * 60 * 1000); // 5 minutes timeout
+      } else {
+        // Persist state to database (user may reconnect)
+        scheduleSaveGameState(room, games[room]);
       }
     });
   });
@@ -356,6 +577,37 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(port, () => {
-  console.log("Server running at http://localhost:" + port);
-});
+// Initialize database and start server
+async function startServer() {
+  try {
+    console.log('🚀 Initializing Truth or Dare Server...');
+
+    // Initialize Drizzle database connection
+    await initDatabase();
+
+    // Run migrations
+    await runMigrations();
+
+    // Start server
+    server.listen(port, () => {
+      console.log(`✅ Server running at http://localhost:${port}`);
+      console.log(`📊 Database: ${process.env.DATABASE_TYPE || 'sqlite'}`);
+      console.log(`🔐 Auth endpoints: /api/auth`);
+      console.log(`👤 User endpoints: /api/users`);
+      console.log(`👥 Friends endpoints: /api/friends`);
+      console.log(`🎮 Games endpoints: /api/games`);
+      console.log(`🔔 Notifications endpoints: /api/notifications`);
+      console.log(`📱 CORS enabled for: ${corsOrigins.join(', ')}`);
+
+      // Start heartbeat for online status (every 2 minutes)
+      setInterval(() => {
+        heartbeatOnlineUsers();
+      }, 2 * 60 * 1000);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();

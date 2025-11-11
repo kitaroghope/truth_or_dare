@@ -681,7 +681,26 @@
 <body class="container py-4">
   <!-- ========== APP HEADER ========== -->
   <div class="app-header">
-    <h1 class="app-title">🎲 Truth or Dare</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="app-title mb-0">🎲 Truth or Dare</h1>
+      <div id="authButtons" class="btn-group">
+        <button class="btn btn-sm btn-outline-light" onclick="showLoginModal()">Login</button>
+        <button class="btn btn-sm btn-light" onclick="showSignupModal()">Sign Up</button>
+      </div>
+      <div id="userMenu" class="dropdown" style="display: none;">
+        <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="userMenuBtn" data-bs-toggle="dropdown">
+          <img id="userAvatar" src="" alt="Avatar" style="width: 30px; height: 30px; border-radius: 50%; object-fit: cover; margin-right: 5px;">
+          <span id="userMenuName">User</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" onclick="showProfileModal()">👤 Profile</a></li>
+          <li><a class="dropdown-item" href="#" onclick="showFriendsModal()">👥 Friends</a></li>
+          <li><a class="dropdown-item" href="#" onclick="showGameHistoryModal()">📊 Game History</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item text-danger" href="#" onclick="logout()">🚪 Logout</a></li>
+        </ul>
+      </div>
+    </div>
     <p class="app-subtitle">Rock, Paper, Scissors meets Truth or Dare!</p>
   </div>
 
@@ -692,7 +711,19 @@
     <!-- Hidden room input for invite links -->
     <input id="groupInput" type="hidden" />
 
-    <!-- Username row -->
+    <!-- Greeting message (shown when username is saved) -->
+    <div id="greetingMessage" class="mb-4 d-none">
+      <div class="alert alert-success d-flex justify-content-between align-items-center" style="border-radius: 15px;">
+        <span>
+          <strong>👋 Welcome back, <span id="greetingUsername"></span>!</strong>
+        </span>
+        <button id="changeUsernameBtn" class="btn btn-sm btn-outline-secondary" style="border-radius: 15px;">
+          ✏️ Change Name
+        </button>
+      </div>
+    </div>
+
+    <!-- Username row (hidden when username is saved) -->
     <div id="usernameRow" class="d-flex mb-4">
       <input id="usernameInput" class="form-control me-3" placeholder="Enter your username" />
       <button id="saveUsernameBtn" class="btn btn-primary">Save Name</button>
@@ -810,8 +841,236 @@
     </div>
   </div>
 
-  <!-- Socket.IO & client script -->
+  <!-- ========== LOGIN MODAL ========== -->
+  <div id="loginModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-title">🔐 Login</div>
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="mb-3">
+          <input type="email" class="form-control" id="loginEmail" placeholder="Email" required>
+        </div>
+        <div class="mb-3">
+          <input type="password" class="form-control" id="loginPassword" placeholder="Password" required>
+        </div>
+        <div id="loginError" class="alert alert-danger" style="display: none;"></div>
+        <div class="modal-buttons">
+          <button type="submit" class="modal-btn modal-btn-truth">Login</button>
+          <button type="button" class="modal-btn modal-btn-dare" onclick="closeLoginModal()">Cancel</button>
+        </div>
+        <div class="text-center mt-3">
+          <a href="#" onclick="showForgotPasswordModal(); return false;" style="color: var(--primary-color);">Forgot password?</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========== SIGNUP MODAL ========== -->
+  <div id="signupModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-title">✨ Sign Up</div>
+      <form id="signupForm" onsubmit="handleSignup(event)">
+        <div class="mb-3">
+          <input type="text" class="form-control" id="signupUsername" placeholder="Username" required>
+        </div>
+        <div class="mb-3">
+          <input type="email" class="form-control" id="signupEmail" placeholder="Email" required>
+        </div>
+        <div class="mb-3">
+          <input type="password" class="form-control" id="signupPassword" placeholder="Password (min 8 characters)" required minlength="8">
+        </div>
+        <div class="mb-3">
+          <input type="password" class="form-control" id="signupConfirmPassword" placeholder="Confirm Password" required minlength="8">
+        </div>
+        <div id="signupError" class="alert alert-danger" style="display: none;"></div>
+        <div class="modal-buttons">
+          <button type="submit" class="modal-btn modal-btn-truth">Sign Up</button>
+          <button type="button" class="modal-btn modal-btn-dare" onclick="closeSignupModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========== FORGOT PASSWORD MODAL ========== -->
+  <div id="forgotPasswordModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-title">🔑 Reset Password</div>
+      <div class="modal-message">Enter your email to receive a password reset link</div>
+      <form id="forgotPasswordForm" onsubmit="handleForgotPassword(event)">
+        <div class="mb-3">
+          <input type="email" class="form-control" id="forgotPasswordEmail" placeholder="Email" required>
+        </div>
+        <div id="forgotPasswordSuccess" class="alert alert-success" style="display: none;"></div>
+        <div id="forgotPasswordError" class="alert alert-danger" style="display: none;"></div>
+        <div class="modal-buttons">
+          <button type="submit" class="modal-btn modal-btn-truth">Send Reset Link</button>
+          <button type="button" class="modal-btn modal-btn-dare" onclick="closeForgotPasswordModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========== PROFILE MODAL ========== -->
+  <div id="profileModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-title">👤 My Profile</div>
+      <div class="text-center mb-4">
+        <img id="profileAvatar" src="/images/default-avatar.png" alt="Avatar"
+             style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid var(--primary-color);">
+        <div class="mt-2">
+          <input type="file" id="avatarUpload" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
+          <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('avatarUpload').click()">
+            📷 Change Avatar
+          </button>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-bold">Username</label>
+        <input type="text" class="form-control" id="profileUsername" readonly>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-bold">Email</label>
+        <input type="email" class="form-control" id="profileEmail" readonly>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-bold">Bio</label>
+        <textarea class="form-control" id="profileBio" rows="3" placeholder="Tell us about yourself..."></textarea>
+      </div>
+      <div class="mb-3">
+        <h6 class="fw-bold">📊 Statistics</h6>
+        <div class="row text-center">
+          <div class="col-3">
+            <div class="fw-bold" id="profileGamesPlayed">0</div>
+            <small class="text-muted">Games</small>
+          </div>
+          <div class="col-3">
+            <div class="fw-bold text-success" id="profileGamesWon">0</div>
+            <small class="text-muted">Won</small>
+          </div>
+          <div class="col-3">
+            <div class="fw-bold text-danger" id="profileGamesLost">0</div>
+            <small class="text-muted">Lost</small>
+          </div>
+          <div class="col-3">
+            <div class="fw-bold" id="profileWinRate">0%</div>
+            <small class="text-muted">Win Rate</small>
+          </div>
+        </div>
+      </div>
+      <div id="profileError" class="alert alert-danger" style="display: none;"></div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-truth" onclick="updateProfile()">Save Changes</button>
+        <button class="modal-btn modal-btn-dare" onclick="closeProfileModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== FRIENDS MODAL ========== -->
+  <div id="friendsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+      <div class="modal-title">👥 Friends</div>
+
+      <!-- Tabs -->
+      <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="friends-tab" data-bs-toggle="tab" data-bs-target="#friendsList" type="button">
+            My Friends <span id="friendsCount" class="badge bg-primary ms-1">0</span>
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="requests-tab" data-bs-toggle="tab" data-bs-target="#friendRequests" type="button">
+            Requests <span id="requestsCount" class="badge bg-danger ms-1">0</span>
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="search-tab" data-bs-toggle="tab" data-bs-target="#friendSearch" type="button">
+            Search
+          </button>
+        </li>
+      </ul>
+
+      <!-- Tab Content -->
+      <div class="tab-content">
+        <!-- Friends List -->
+        <div class="tab-pane fade show active" id="friendsList" role="tabpanel">
+          <div id="friendsListContent" class="list-group">
+            <div class="text-center text-muted py-4">No friends yet. Start searching!</div>
+          </div>
+        </div>
+
+        <!-- Friend Requests -->
+        <div class="tab-pane fade" id="friendRequests" role="tabpanel">
+          <div id="friendRequestsContent" class="list-group">
+            <div class="text-center text-muted py-4">No pending requests</div>
+          </div>
+        </div>
+
+        <!-- Friend Search -->
+        <div class="tab-pane fade" id="friendSearch" role="tabpanel">
+          <div class="mb-3">
+            <input type="text" class="form-control" id="friendSearchInput" placeholder="Search by username..." oninput="searchFriends()">
+          </div>
+          <div id="friendSearchResults" class="list-group">
+            <div class="text-center text-muted py-4">Enter a username to search</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-buttons mt-3">
+        <button class="modal-btn modal-btn-dare" onclick="closeFriendsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== GAME HISTORY MODAL ========== -->
+  <div id="gameHistoryModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 700px; max-height: 80vh; overflow-y: auto;">
+      <div class="modal-title">📊 Game History</div>
+
+      <!-- Filters -->
+      <div class="mb-3 d-flex gap-2">
+        <button class="btn btn-sm btn-outline-primary" onclick="filterGameHistory('all')">All</button>
+        <button class="btn btn-sm btn-outline-success" onclick="filterGameHistory('won')">Won</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="filterGameHistory('lost')">Lost</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="filterGameHistory('completed')">Completed</button>
+      </div>
+
+      <div id="gameHistoryContent">
+        <div class="text-center text-muted py-4">Loading game history...</div>
+      </div>
+
+      <div class="modal-buttons mt-3">
+        <button class="modal-btn modal-btn-dare" onclick="closeGameHistoryModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== EMAIL INVITATION MODAL ========== -->
+  <div id="emailInviteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-title">📧 Invite by Email</div>
+      <div class="modal-message">Send a game invitation to your friend's email</div>
+      <form id="emailInviteForm" onsubmit="handleEmailInvite(event)">
+        <div class="mb-3">
+          <input type="email" class="form-control" id="inviteEmail" placeholder="Friend's email" required>
+        </div>
+        <div class="mb-3">
+          <input type="text" class="form-control" id="inviteMessage" placeholder="Personal message (optional)">
+        </div>
+        <div id="inviteSuccess" class="alert alert-success" style="display: none;"></div>
+        <div id="inviteError" class="alert alert-danger" style="display: none;"></div>
+        <div class="modal-buttons">
+          <button type="submit" class="modal-btn modal-btn-truth">Send Invitation</button>
+          <button type="button" class="modal-btn modal-btn-dare" onclick="closeEmailInviteModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Socket.IO & client scripts -->
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="gameClient.js"></script>
   <script src="client.js"></script>
+  <script src="auth.js"></script>
 </body>
 </html>

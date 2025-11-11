@@ -2,3 +2,10 @@ node_modules/
 dist/
 *.zip
 .env
+.claude/
+chat.db
+chat.db-journal
+*.db
+*.db-journal
+drizzle/
+uploads/avatars/

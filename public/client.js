@@ -109,14 +109,14 @@ function makeChoice(choice) {
   loadingSpinner.className = 'loading-spinner mt-3';
   loadingSpinner.id = 'loadingSpinner';
   resultMessage.appendChild(loadingSpinner);
-  
-  appendSystemMessage(`${username} chose ${choice}`);
+
+  // System message now handled by server
 }
 
 function sendTD(selection) {
   socket.emit("truthOrDare", selection);
   truthDarePrompt.style.display = "none";
-  appendSystemMessage(`${username} selected ${selection}`);
+  // System message now handled by server
 }
 
 function selectTruthDare(selection) {
@@ -218,25 +218,33 @@ function startNewRound() {
 function appendMessage(msg) {
   const div = document.createElement("div");
   div.classList.add("message");
-  div.classList.add(msg.username === username ? "from-me" : "from-them");
 
-  if (msg.type === "text") {
-    div.innerHTML = `<strong>${msg.username}:</strong> ${msg.content}`;
-  } else if (msg.type === "audio") {
-    div.innerHTML = `<strong>${msg.username}:</strong><br><audio controls src="${msg.content}"></audio>`;
+  // Handle system messages differently
+  if (msg.type === "system") {
+    div.classList.add("from-them");
+    div.innerHTML = `<em>${msg.content}</em>`;
   } else {
-    const fileType = msg.content.split('.').pop().toLowerCase();
-    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileType);
-    const isVideo = ['mp4', 'webm', 'ogg', 'mov'].includes(fileType);
-    
-    if (isImage) {
-      div.innerHTML = `<strong>${msg.username}:</strong><br><img src="${msg.content}" style="max-width: 200px; max-height: 200px; border-radius: 10px;" />`;
-    } else if (isVideo) {
-      div.innerHTML = `<strong>${msg.username}:</strong><br><video controls style="max-width: 200px; max-height: 200px; border-radius: 10px;" src="${msg.content}"></video>`;
+    div.classList.add(msg.username === username ? "from-me" : "from-them");
+
+    if (msg.type === "text") {
+      div.innerHTML = `<strong>${msg.username}:</strong> ${msg.content}`;
+    } else if (msg.type === "audio") {
+      div.innerHTML = `<strong>${msg.username}:</strong><br><audio controls src="${msg.content}"></audio>`;
     } else {
-      div.innerHTML = `<strong>${msg.username}:</strong><br><a href="${msg.content}" target="_blank" class="file-message">📎 Download File</a>`;
+      const fileType = msg.content.split('.').pop().toLowerCase();
+      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileType);
+      const isVideo = ['mp4', 'webm', 'ogg', 'mov'].includes(fileType);
+
+      if (isImage) {
+        div.innerHTML = `<strong>${msg.username}:</strong><br><img src="${msg.content}" style="max-width: 200px; max-height: 200px; border-radius: 10px;" />`;
+      } else if (isVideo) {
+        div.innerHTML = `<strong>${msg.username}:</strong><br><video controls style="max-width: 200px; max-height: 200px; border-radius: 10px;" src="${msg.content}"></video>`;
+      } else {
+        div.innerHTML = `<strong>${msg.username}:</strong><br><a href="${msg.content}" target="_blank" class="file-message">📎 Download File</a>`;
+      }
     }
   }
+
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -412,8 +420,8 @@ socket.on("result", ({ message }) => {
       btn.style.opacity = '1';
     });
   }
-  
-  appendSystemMessage(`${username}: ${message}`);
+
+  // System message now handled by server
 });
 socket.on("chatVisible", (visible) => {
   // The server controls chat visibility, but we now manage it through game state
@@ -426,7 +434,7 @@ socket.on("chatVisible", (visible) => {
   }
 });
 socket.on("truthOrDareResponse", ({ username, selection }) => {
-  appendSystemMessage(`${username} chose <strong>${selection}</strong>`);
+  // System message now handled by server via newMessage event
 });
 socket.on("showTruthDareModal", ({ type }) => {
   showTruthDareModal(type);
@@ -436,6 +444,71 @@ socket.on("hideTruthDareModal", () => {
 });
 socket.on("newMessage", appendMessage);
 socket.on("previousMessages", (msgs) => msgs.forEach(appendMessage));
+
+// NEW: Full state restoration after reconnection
+socket.on("fullStateRestoration", (state) => {
+  console.log("✅ Restoring full game state:", state);
+
+  // Restore game phase
+  gameState = state.gameState || "waiting";
+
+  // Restore UI visibility based on phase
+  if (state.chatVisible) {
+    chatSection.style.display = "block";
+    chatInputContainer.style.display = "flex";
+    newRoundContainer.style.display = "block";
+    rpsSection.style.display = "none";
+    gameState = "finished";
+  } else {
+    chatSection.style.display = "none";
+    chatInputContainer.style.display = "none";
+    newRoundContainer.style.display = "none";
+    rpsSection.style.display = "block";
+  }
+
+  // Update UI based on current game state
+  updateUIVisibility();
+
+  // Restore result message if there's a winner/loser
+  if (state.isWinner) {
+    resultMessage.innerText = "You win! You may ask a truth or give a dare.";
+    resultMessage.className = "mt-4 result-win";
+  } else if (state.isLoser) {
+    resultMessage.innerText = "You lose! Choose Truth or Dare.";
+    resultMessage.className = "mt-4 result-lose";
+  }
+
+  // Restore Truth/Dare modal state if needed
+  if (state.awaitingTruthDare && !state.truthDareSelection) {
+    if (state.isLoser) {
+      showTruthDareModal("choose");
+    } else if (state.isWinner) {
+      showTruthDareModal("waiting");
+    }
+  } else {
+    hideTruthDareModal();
+  }
+
+  // Restore button states
+  const rpsButtons = document.querySelectorAll('.rps-button');
+  if (state.gamePhase === 'choosing' && state.userChoice) {
+    // User already made a choice - show waiting state
+    rpsButtons.forEach(btn => {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    });
+    resultMessage.innerText = "Waiting for other player...";
+  } else if (state.gamePhase === 'lobby' || state.gamePhase === 'waiting') {
+    // Enable buttons for new choice
+    rpsButtons.forEach(btn => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    });
+  }
+
+  console.log(`✅ State restored: phase=${state.gamePhase}, chatVisible=${state.chatVisible}`);
+});
+
 socket.on("clearResultMessage", () => {
   resultMessage.innerText = "";
   resultMessage.className = "mt-4";
@@ -519,21 +592,50 @@ function setupRoomList() {
 function setupUsernameHandling() {
   const usernameInput = document.getElementById('usernameInput');
   const saveUsernameBtn = document.getElementById('saveUsernameBtn');
-  
-  // Load saved username
-  if (username) {
-    usernameInput.value = username;
+  const usernameRow = document.getElementById('usernameRow');
+  const greetingMessage = document.getElementById('greetingMessage');
+  const greetingUsername = document.getElementById('greetingUsername');
+  const changeUsernameBtn = document.getElementById('changeUsernameBtn');
+
+  // Function to show greeting and hide username input
+  function showGreeting() {
+    if (username) {
+      greetingUsername.innerText = username;
+      // Show greeting
+      greetingMessage.classList.remove('d-none');
+      // Hide username input
+      usernameRow.classList.add('d-none');
+    }
   }
-  
+
+  // Function to show username input and hide greeting
+  function showUsernameInput() {
+    // Hide greeting
+    greetingMessage.classList.add('d-none');
+    // Show username input
+    usernameRow.classList.remove('d-none');
+    usernameInput.value = username || '';
+    usernameInput.disabled = false;
+    saveUsernameBtn.innerText = 'Save Name';
+    saveUsernameBtn.disabled = false;
+    setTimeout(() => usernameInput.focus(), 100);
+  }
+
+  // Load saved username and show greeting if exists
+  if (username) {
+    showGreeting();
+  } else {
+    showUsernameInput();
+  }
+
+  // Save username button
   saveUsernameBtn.addEventListener('click', () => {
     const inputUsername = usernameInput.value.trim();
     if (inputUsername) {
       username = inputUsername;
       localStorage.setItem('td_username', username);
-      usernameInput.disabled = true;
-      saveUsernameBtn.innerText = '✅ Saved';
-      saveUsernameBtn.disabled = true;
-      
+      showGreeting();
+
       // If room is already selected, join automatically
       if (room) {
         joinGame();
@@ -542,7 +644,12 @@ function setupUsernameHandling() {
       alert('Please enter a valid username!');
     }
   });
-  
+
+  // Change username button
+  changeUsernameBtn.addEventListener('click', () => {
+    showUsernameInput();
+  });
+
   // Allow enter key to save username
   usernameInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
