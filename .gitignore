@@ -9,3 +9,4 @@ chat.db-journal
 *.db-journal
 drizzle/
 uploads/avatars/
+uploads/

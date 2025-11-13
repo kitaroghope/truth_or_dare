@@ -75,18 +75,50 @@ function appendSystemMessage(content) {
 function joinGame() {
   if (!room || !username) return;
 
+  // Update URL without changing UI (wait for server confirmation)
   const url = `?group=${room}&user=${username}`;
   window.history.replaceState({}, "", url);
 
-  setupDiv.style.display = "none";
-  gameUI.style.display = "block";
-  roomLabel.innerText = `Room: ${room}`;
-
-  // Initialize game state
-  gameState = "waiting";
-  updateUIVisibility();
-
+  // Emit join request to server
   socket.emit("joinRoom", { room, username });
+}
+
+function leaveRoom() {
+  // Confirm user wants to leave
+  if (!confirm("Are you sure you want to leave this room?")) {
+    return;
+  }
+
+  // Emit leave room event to server
+  socket.emit("leaveRoom");
+
+  // Reset client state
+  gameState = "waiting";
+  room = null;
+
+  // Reset URL
+  window.history.replaceState({}, "", "/");
+
+  // Hide game UI and show setup screen
+  gameUI.style.display = "none";
+  setupDiv.style.display = "block";
+
+  // Clear inputs
+  document.getElementById("groupInput").value = "";
+  document.getElementById("usernameInput").value = "";
+
+  // Clear chat
+  chatLog.innerHTML = "";
+
+  // Reset result message
+  resultMessage.innerText = "";
+
+  // Re-enable RPS buttons
+  const rpsButtons = document.querySelectorAll('.rps-button');
+  rpsButtons.forEach(btn => {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  });
 }
 
 function makeChoice(choice) {
@@ -384,8 +416,69 @@ if (room && username) {
   joinGame();
 }
 
-socket.on("nameExists", () => alert("Username already taken in this room."));
-socket.on("roomFull", () => alert("Room is full. Max 2 players."));
+// Handle successful room join
+socket.on("joinedRoom", () => {
+  // Now we can show the game UI
+  setupDiv.style.display = "none";
+  gameUI.style.display = "block";
+  roomLabel.innerText = `Room: ${room}`;
+
+  // Initialize game state
+  gameState = "waiting";
+  updateUIVisibility();
+});
+
+// Handle username already taken
+socket.on("nameExists", () => {
+  alert("Username already taken in this room.");
+
+  // Reset UI back to setup screen
+  setupDiv.style.display = "block";
+  gameUI.style.display = "none";
+
+  // Clear username input
+  document.getElementById("usernameInput").value = "";
+  document.getElementById("usernameInput").focus();
+});
+
+// Handle room full
+socket.on("roomFull", () => {
+  alert("Room is full. Max 2 players.");
+
+  // Reset UI back to setup screen
+  setupDiv.style.display = "block";
+  gameUI.style.display = "none";
+
+  // Clear room input to let user try different room
+  document.getElementById("groupInput").value = "";
+  document.getElementById("groupInput").focus();
+});
+
+// Handle game reset (when opponent leaves)
+socket.on("gameReset", () => {
+  // Reset game state
+  gameState = "waiting";
+
+  // Clear chat
+  chatLog.innerHTML = "";
+
+  // Reset result message
+  resultMessage.innerText = "";
+
+  // Re-enable RPS buttons
+  const rpsButtons = document.querySelectorAll('.rps-button');
+  rpsButtons.forEach(btn => {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  });
+
+  // Update UI visibility
+  updateUIVisibility();
+
+  // Notify user
+  addSystemMessage("Your opponent left the room. Waiting for new opponent...");
+});
+
 socket.on("playerUpdate", (players) => {
   const other = players.find((p) => p !== username);
   receiverName.innerText = other ? `Talking to: ${other}` : "Waiting for opponent...";

@@ -98,10 +98,202 @@ async function closeDatabase() {
 /**
  * Run database migrations
  * For SQLite: Create tables if they don't exist
- * For PostgreSQL: Use Drizzle Kit migrations
+ * For PostgreSQL/Neon/Supabase: Run generated migrations from drizzle folder
  */
 async function runMigrations() {
   const dbType = process.env.DATABASE_TYPE || 'sqlite';
+  const isPostgres = ['postgres', 'neon', 'supabase'].includes(dbType);
+
+  if (isPostgres) {
+    console.log(`📦 Running ${dbType} migrations...`);
+
+    try {
+      const { sql: sqlTag } = require('drizzle-orm');
+
+      // Initialize database if not already done
+      if (!db) {
+        await initDatabase();
+      }
+
+      // Create tables directly using SQL - this approach works like SQLite migrations
+      // It will fail gracefully if tables already exist
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS users (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          email VARCHAR(255) UNIQUE NOT NULL,
+          username VARCHAR(100) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          email_verified BOOLEAN DEFAULT FALSE,
+          avatar_url VARCHAR(500),
+          bio VARCHAR(500),
+          last_seen TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS email_idx ON users(email)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS username_idx ON users(username)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS user_stats (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          games_played INTEGER DEFAULT 0 NOT NULL,
+          games_won INTEGER DEFAULT 0 NOT NULL,
+          games_lost INTEGER DEFAULT 0 NOT NULL,
+          truths_completed INTEGER DEFAULT 0 NOT NULL,
+          dares_completed INTEGER DEFAULT 0 NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS user_stats_user_id_idx ON user_stats(user_id)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS friendships (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id_1 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          user_id_2 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS friendships_user1_idx ON friendships(user_id_1)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS friendships_user2_idx ON friendships(user_id_2)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS friendships_status_idx ON friendships(status)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS games (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          room_code VARCHAR(50) UNIQUE NOT NULL,
+          creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          opponent_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          status VARCHAR(20) NOT NULL,
+          current_turn UUID REFERENCES users(id) ON DELETE SET NULL,
+          game_state JSONB,
+          game_phase VARCHAR(30),
+          winner_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS games_room_code_idx ON games(room_code)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS games_creator_idx ON games(creator_id)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS games_opponent_idx ON games(opponent_id)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS games_status_idx ON games(status)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS game_moves (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+          user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          move_type VARCHAR(20) NOT NULL,
+          move_data JSONB,
+          timestamp TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS game_moves_game_id_idx ON game_moves(game_id)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS game_moves_user_id_idx ON game_moves(user_id)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          type VARCHAR(50) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          body VARCHAR(500) NOT NULL,
+          data JSONB,
+          read BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications(user_id)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS notifications_read_idx ON notifications(read)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_hash VARCHAR(255) UNIQUE NOT NULL,
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          device_info VARCHAR(255),
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS refresh_tokens_token_hash_idx ON refresh_tokens(token_hash)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON refresh_tokens(user_id)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS email_verification_tokens (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token VARCHAR(255) UNIQUE NOT NULL,
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS email_verification_tokens_token_idx ON email_verification_tokens(token)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token VARCHAR(255) UNIQUE NOT NULL,
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS password_reset_tokens_token_idx ON password_reset_tokens(token)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS fcm_tokens (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token VARCHAR(500) UNIQUE NOT NULL,
+          device_type VARCHAR(20),
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS fcm_tokens_user_id_idx ON fcm_tokens(user_id)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS fcm_tokens_token_idx ON fcm_tokens(token)`);
+
+      await db.execute(sqlTag`
+        CREATE TABLE IF NOT EXISTS messages (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          room VARCHAR(100) NOT NULL,
+          username VARCHAR(100) NOT NULL,
+          content VARCHAR(5000) NOT NULL,
+          type VARCHAR(50) NOT NULL,
+          user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          game_id UUID REFERENCES games(id) ON DELETE CASCADE,
+          timestamp TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS messages_room_idx ON messages(room)`);
+      await db.execute(sqlTag`CREATE INDEX IF NOT EXISTS messages_game_id_idx ON messages(game_id)`);
+
+      console.log(`✅ ${dbType} migrations completed successfully`);
+    } catch (error) {
+      // Check if error is about tables already existing
+      if (error.message && error.message.includes('already exists')) {
+        console.log(`✅ ${dbType} tables already exist, skipping migration`);
+      } else {
+        console.error(`❌ ${dbType} migration failed:`, error);
+        throw error;
+      }
+    }
+
+    return;
+  }
 
   if (dbType === 'sqlite') {
     console.log('📦 Running SQLite migrations...');
@@ -312,9 +504,6 @@ async function runMigrations() {
         db.run(`CREATE INDEX IF NOT EXISTS messages_game_id_idx ON messages(game_id)`);
       });
     });
-  } else {
-    console.log('📦 For PostgreSQL/Neon/Supabase, run migrations using Drizzle Kit:');
-    console.log('   npx drizzle-kit push:pg');
   }
 }
 

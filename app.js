@@ -24,7 +24,8 @@ const friendsRoutes = require('./routes/friends');
 const gamesRoutes = require('./routes/games');
 const notificationsRoutes = require('./routes/notifications');
 const { heartbeatOnlineUsers } = require('./utils/onlineStatus');
-const { authenticateSocket, setupSocketHandlers } = require('./socket');
+// DISABLED: Duplicate socket system (conflicts with main game socket handlers)
+// const { authenticateSocket, setupSocketHandlers } = require('./socket');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const { securityHeaders, sanitizeQueryParams } = require('./middleware/validation');
 
@@ -52,11 +53,12 @@ const io = new Server(server, {
   },
 });
 
+// DISABLED: Duplicate socket system (conflicts with main game socket handlers)
 // Apply Socket.io authentication middleware
-io.use(authenticateSocket);
+// io.use(authenticateSocket);
 
 // Setup new Socket.io event handlers (for authenticated mobile/web clients)
-setupSocketHandlers(io);
+// setupSocketHandlers(io);
 
 // Admin authentication
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
@@ -241,18 +243,48 @@ const games = {};
 
 // Helper functions for username ↔ socket mapping
 function getSocketIdByUsername(room, username) {
-  if (!games[room] || !games[room].users) return null;
-  return games[room].users[username] || null;
+  if (!games[room] || !games[room].users) {
+    console.warn(`⚠️  getSocketIdByUsername: Room ${room} not found`);
+    return null;
+  }
+
+  const socketId = games[room].users[username];
+  if (!socketId) {
+    console.warn(`⚠️  getSocketIdByUsername: Username "${username}" not found in room ${room}`);
+    return null;
+  }
+
+  // Validate that socket still exists
+  const socket = io.sockets.sockets.get(socketId);
+  if (!socket || !socket.connected) {
+    console.warn(`⚠️  Socket ${socketId} for "${username}" is no longer connected`);
+    return null;
+  }
+
+  return socketId;
 }
 
 function getUsernameBySocketId(room, socketId) {
-  if (!games[room] || !games[room].users) return null;
-  return Object.keys(games[room].users).find(username => games[room].users[username] === socketId) || null;
+  if (!games[room] || !games[room].users) {
+    console.warn(`⚠️  getUsernameBySocketId: Room ${room} not found`);
+    return null;
+  }
+
+  const username = Object.keys(games[room].users).find(username => games[room].users[username] === socketId);
+  if (!username) {
+    console.warn(`⚠️  getUsernameBySocketId: Socket ${socketId} not found in room ${room}`);
+  }
+
+  return username || null;
 }
 
 function updateSocketMapping(room, username, newSocketId) {
-  if (!games[room]) return false;
+  if (!games[room]) {
+    console.warn(`⚠️  updateSocketMapping: Room ${room} not found`);
+    return false;
+  }
   games[room].users[username] = newSocketId;
+  console.log(`✅ Updated socket mapping: ${username} → ${newSocketId} in room ${room}`);
   return true;
 }
 
@@ -306,14 +338,25 @@ io.on("connection", (socket) => {
       }
     }
 
-    // Check if username already exists (rejoining)
-    const isRejoining = games[room].users.hasOwnProperty(username);
+    // Check if username already exists in this room
+    const existingSocketId = games[room].users[username];
+    const usernameExists = existingSocketId !== undefined;
+    const isRejoining = usernameExists && (existingSocketId === socket.id || existingSocketId === null);
+    const isDuplicateUsername = usernameExists && existingSocketId !== socket.id && existingSocketId !== null;
+
+    // Block duplicate usernames (different user trying to use existing name)
+    if (isDuplicateUsername) {
+      console.log(`❌ Username "${username}" already taken in room ${room}`);
+      socket.emit("nameExists");
+      return;
+    }
 
     if (!isRejoining) {
-      // New user joining - check for duplicates and room capacity
+      // New user joining - check room capacity
       const userCount = Object.keys(games[room].users).length;
 
       if (userCount >= 2) {
+        console.log(`❌ Room ${room} is full (${userCount}/2 players)`);
         socket.emit("roomFull");
         return;
       }
@@ -321,7 +364,11 @@ io.on("connection", (socket) => {
 
     // Update socket mapping (works for both new users and rejoining)
     games[room].users[username] = socket.id;
+    console.log(`✅ User "${username}" ${isRejoining ? 'rejoined' : 'joined'} room ${room}`);
     socket.join(room);
+
+    // Confirm successful join to the client
+    socket.emit("joinedRoom");
 
     // Notify all players of updated user list
     const userList = Object.keys(games[room].users);
@@ -537,26 +584,93 @@ io.on("connection", (socket) => {
       const username = getUsernameBySocketId(room, socket.id);
       if (!username) return;
 
-      // Remove socket mapping but keep username in users list
+      console.log(`🔌 User "${username}" disconnected from room ${room}`);
+
+      // Mark user as disconnected (set socket to null, keep game state)
       // This allows the user to reconnect and restore their state
-      delete games[room].users[username];
+      games[room].users[username] = null;
 
-      // Notify remaining players
-      const remainingUsers = Object.keys(games[room].users);
-      io.to(room).emit("playerUpdate", remainingUsers);
+      // Get list of CONNECTED users (exclude those with null socket IDs)
+      const connectedUsers = Object.keys(games[room].users).filter(
+        user => games[room].users[user] !== null
+      );
 
-      // If room is now empty, schedule cleanup after timeout
-      if (remainingUsers.length === 0) {
+      // Notify remaining connected players
+      io.to(room).emit("playerUpdate", connectedUsers);
+
+      // If no connected users, schedule cleanup after timeout
+      if (connectedUsers.length === 0) {
+        console.log(`⏱️  Room ${room} empty, scheduling cleanup in 5 minutes`);
         setTimeout(() => {
-          // Check again if room is still empty
-          if (games[room] && Object.keys(games[room].users).length === 0) {
-            console.log(`🧹 Cleaning up empty room: ${room}`);
-            delete games[room];
+          // Check again if room still has no connected users
+          if (games[room]) {
+            const stillConnected = Object.keys(games[room].users).filter(
+              user => games[room].users[user] !== null
+            );
+            if (stillConnected.length === 0) {
+              console.log(`🧹 Cleaning up empty room: ${room}`);
+              delete games[room];
+            }
           }
         }, 5 * 60 * 1000); // 5 minutes timeout
       } else {
         // Persist state to database (user may reconnect)
         scheduleSaveGameState(room, games[room]);
+      }
+    });
+
+    // Handle user intentionally leaving room (not just disconnecting)
+    socket.on("leaveRoom", () => {
+      if (!games[room]) return;
+
+      const username = getUsernameBySocketId(room, socket.id);
+      if (!username) return;
+
+      console.log(`🚪 User "${username}" left room ${room}`);
+
+      // Remove user completely (intentional leave, not temporary disconnect)
+      delete games[room].users[username];
+
+      // Also clear their choices and other state
+      if (games[room].choices) {
+        delete games[room].choices[username];
+      }
+
+      // Reset winner/loser if they were this user
+      if (games[room].winner === username) {
+        games[room].winner = null;
+      }
+      if (games[room].loser === username) {
+        games[room].loser = null;
+      }
+
+      socket.leave(room);
+
+      // Get remaining users
+      const remainingUsers = Object.keys(games[room].users);
+
+      // Notify remaining players
+      io.to(room).emit("playerUpdate", remainingUsers);
+
+      // If room empty, clean up immediately (no timeout)
+      if (remainingUsers.length === 0) {
+        console.log(`🧹 Cleaning up empty room: ${room}`);
+        delete games[room];
+      } else {
+        // Reset game state if only one player remains
+        games[room].gamePhase = "lobby";
+        games[room].choices = {};
+        games[room].winner = null;
+        games[room].loser = null;
+        games[room].chatVisible = false;
+        games[room].awaitingTruthDare = false;
+        games[room].truthDareSelection = null;
+
+        // Persist updated state
+        scheduleSaveGameState(room, games[room]);
+
+        // Notify remaining player to reset their UI
+        io.to(room).emit("gameReset");
       }
     });
   });

@@ -1,13 +1,16 @@
 require('dotenv').config();
 
+const dbType = process.env.DATABASE_TYPE || 'sqlite';
+const isPostgres = ['postgres', 'neon', 'supabase'].includes(dbType);
+
 /** @type { import("drizzle-kit").Config } */
 module.exports = {
   schema: './db/schema.js',
   out: './drizzle',
-  driver: process.env.DATABASE_TYPE === 'postgres' ? 'pg' : 'better-sqlite',
-  dbCredentials: process.env.DATABASE_TYPE === 'postgres'
+  dialect: isPostgres ? 'postgresql' : 'sqlite',
+  dbCredentials: isPostgres
     ? {
-        connectionString: process.env.DATABASE_URL,
+        url: process.env.DATABASE_URL,
       }
     : {
         url: process.env.DATABASE_URL || './chat.db',
