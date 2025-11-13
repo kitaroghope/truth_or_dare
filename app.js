@@ -146,52 +146,58 @@ app.post("/api/admin/logout", (req, res) => {
 });
 
 // Admin API endpoints (protected)
-app.get("/api/admin/conversations", requireAdminAuth, (req, res) => {
-  db.all("SELECT * FROM messages ORDER BY timestamp DESC", [], (err, rows) => {
-    if (err) {
-      console.error("Database error:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
+app.get("/api/admin/conversations", requireAdminAuth, async (req, res) => {
+  try {
+    const { getDatabase } = require('./db');
+    const { messages } = require('./db/schema');
+    const { desc } = require('drizzle-orm');
+    const drizzleDb = getDatabase();
+
+    // Fetch all messages ordered by timestamp
+    const rows = await drizzleDb.select().from(messages).orderBy(desc(messages.timestamp));
+
+    // Convert timestamp objects to ISO strings for JSON serialization
+    const serializedRows = rows.map(row => ({
+      ...row,
+      timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : row.timestamp
+    }));
 
     // Calculate statistics
     const stats = {
-      totalMessages: rows.length,
-      totalRooms: new Set(rows.map(row => row.room)).size,
-      totalUsers: new Set(rows.map(row => row.username)).size,
-      totalFiles: rows.filter(row => row.type === 'file' || row.type === 'audio').length
+      totalMessages: serializedRows.length,
+      totalRooms: new Set(serializedRows.map(row => row.room)).size,
+      totalUsers: new Set(serializedRows.map(row => row.username)).size,
+      totalFiles: serializedRows.filter(row => row.type === 'file' || row.type === 'audio').length
     };
 
     res.json({
-      conversations: rows,
+      conversations: serializedRows,
       stats: stats
     });
-  });
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "Database error" });
+  }
 });
 
-app.delete("/api/admin/conversations", requireAdminAuth, (req, res) => {
-  db.run("DELETE FROM messages", [], function(err) {
-    if (err) {
-      console.error("Database error:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `Deleted ${this.changes} messages` 
+app.delete("/api/admin/conversations", requireAdminAuth, async (req, res) => {
+  try {
+    const { getDatabase } = require('./db');
+    const { messages } = require('./db/schema');
+    const { sql } = require('drizzle-orm');
+    const drizzleDb = getDatabase();
+
+    // Delete all messages
+    const result = await drizzleDb.delete(messages);
+
+    res.json({
+      success: true,
+      message: `Deleted all messages successfully`
     });
-  });
-});
-// SQLite setup
-const db = new sqlite3.Database("chat.db");
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS messages (
-    id TEXT,
-    room TEXT,
-    username TEXT,
-    content TEXT,
-    type TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "Database error" });
+  }
 });
 
 // Multer storage for uploaded files
@@ -209,21 +215,32 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // File upload endpoint
-app.post("/upload/:room/:username", upload.single("file"), (req, res) => {
+app.post("/upload/:room/:username", upload.single("file"), async (req, res) => {
   const { room, username } = req.params;
   const fileUrl = `/uploads/${req.file.filename}`;
   const id = uuidv4();
   const type = req.file.mimetype.startsWith("audio/") ? "audio" : "file";
 
-  db.run(
-    "INSERT INTO messages (id, room, username, content, type) VALUES (?, ?, ?, ?, ?)",
-    [id, room, username, fileUrl, type],
-    (err) => {
-      if (err) return res.status(500).json({ error: "DB error" });
-      io.to(room).emit("newMessage", { id, room, username, content: fileUrl, type });
-      res.json({ success: true, fileUrl });
-    }
-  );
+  try {
+    const { getDatabase } = require('./db');
+    const { messages } = require('./db/schema');
+    const drizzleDb = getDatabase();
+
+    await drizzleDb.insert(messages).values({
+      id,
+      room,
+      username,
+      content: fileUrl,
+      type,
+      timestamp: new Date()
+    });
+
+    io.to(room).emit("newMessage", { id, room, username, content: fileUrl, type });
+    res.json({ success: true, fileUrl });
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "DB error" });
+  }
 });
 
 // Import game state sync utilities
@@ -375,9 +392,29 @@ io.on("connection", (socket) => {
     io.to(room).emit("playerUpdate", userList);
 
     // Send previous messages
-    db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp ASC", [room], (err, rows) => {
-      if (!err) socket.emit("previousMessages", rows);
-    });
+    (async () => {
+      try {
+        const { getDatabase } = require('./db');
+        const { messages } = require('./db/schema');
+        const { eq, asc } = require('drizzle-orm');
+        const drizzleDb = getDatabase();
+
+        const rows = await drizzleDb.select()
+          .from(messages)
+          .where(eq(messages.room, room))
+          .orderBy(asc(messages.timestamp));
+
+        // Serialize timestamps for client
+        const serializedRows = rows.map(row => ({
+          ...row,
+          timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : row.timestamp
+        }));
+
+        socket.emit("previousMessages", serializedRows);
+      } catch (err) {
+        console.error("Error fetching previous messages:", err);
+      }
+    })();
 
     // Send full state restoration to rejoining/new user
     const currentState = {
@@ -540,7 +577,7 @@ io.on("connection", (socket) => {
       }
     });
 
-    socket.on("sendMessage", (msg) => {
+    socket.on("sendMessage", async (msg) => {
       // Get username from socket ID
       const username = getUsernameBySocketId(room, socket.id);
       if (!username) {
@@ -549,11 +586,25 @@ io.on("connection", (socket) => {
       }
 
       const id = uuidv4();
-      db.run("INSERT INTO messages (id, room, username, content, type) VALUES (?, ?, ?, ?, ?)", [id, room, username, msg, "text"], (err) => {
-        if (!err) {
-          io.to(room).emit("newMessage", { id, room, username, content: msg, type: "text" });
-        }
-      });
+
+      try {
+        const { getDatabase } = require('./db');
+        const { messages } = require('./db/schema');
+        const drizzleDb = getDatabase();
+
+        await drizzleDb.insert(messages).values({
+          id,
+          room,
+          username,
+          content: msg,
+          type: "text",
+          timestamp: new Date()
+        });
+
+        io.to(room).emit("newMessage", { id, room, username, content: msg, type: "text" });
+      } catch (err) {
+        console.error("Database error:", err);
+      }
     });
 
     socket.on("startNewRound", async () => {
