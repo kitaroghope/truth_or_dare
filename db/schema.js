@@ -3,26 +3,28 @@ const { pgTable, uuid, varchar, timestamp, boolean, json, uniqueIndex } = requir
 const { sql } = require('drizzle-orm');
 
 // Determine which table creator to use based on DATABASE_TYPE env var
-const createTable = process.env.DATABASE_TYPE === 'postgres' ? pgTable : sqliteTable;
+const dbType = process.env.DATABASE_TYPE || 'sqlite';
+const isPostgres = ['postgres', 'neon', 'supabase'].includes(dbType);
+const createTable = isPostgres ? pgTable : sqliteTable;
 
 // Helper functions for cross-database compatibility
-const id = () => process.env.DATABASE_TYPE === 'postgres'
+const id = () => isPostgres
   ? uuid('id').defaultRandom().primaryKey()
   : text('id').primaryKey();
 
-const timestamp_field = (name) => process.env.DATABASE_TYPE === 'postgres'
+const timestamp_field = (name) => isPostgres
   ? timestamp(name).defaultNow()
   : integer(name, { mode: 'timestamp' }).default(sql`(unixepoch())`);
 
-const varchar_field = (name, length = 255) => process.env.DATABASE_TYPE === 'postgres'
+const varchar_field = (name, length = 255) => isPostgres
   ? varchar(name, { length })
   : text(name);
 
-const boolean_field = (name) => process.env.DATABASE_TYPE === 'postgres'
+const boolean_field = (name) => isPostgres
   ? boolean(name).default(false)
   : integer(name, { mode: 'boolean' }).default(false);
 
-const json_field = (name) => process.env.DATABASE_TYPE === 'postgres'
+const json_field = (name) => isPostgres
   ? json(name)
   : text(name, { mode: 'json' });
 
@@ -45,7 +47,7 @@ const users = createTable('users', {
 // User Stats table
 const user_stats = createTable('user_stats', {
   id: id(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   games_played: integer('games_played').default(0).notNull(),
@@ -61,10 +63,10 @@ const user_stats = createTable('user_stats', {
 // Friendships table
 const friendships = createTable('friendships', {
   id: id(),
-  user_id_1: process.env.DATABASE_TYPE === 'postgres'
+  user_id_1: isPostgres
     ? uuid('user_id_1').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id_1').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  user_id_2: process.env.DATABASE_TYPE === 'postgres'
+  user_id_2: isPostgres
     ? uuid('user_id_2').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id_2').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   status: varchar_field('status', 20).notNull(), // 'pending', 'accepted', 'blocked'
@@ -79,19 +81,19 @@ const friendships = createTable('friendships', {
 const games = createTable('games', {
   id: id(),
   room_code: varchar_field('room_code', 50).unique().notNull(),
-  creator_id: process.env.DATABASE_TYPE === 'postgres'
+  creator_id: isPostgres
     ? uuid('creator_id').references(() => users.id, { onDelete: 'set null' })
     : text('creator_id').references(() => users.id, { onDelete: 'set null' }),
-  opponent_id: process.env.DATABASE_TYPE === 'postgres'
+  opponent_id: isPostgres
     ? uuid('opponent_id').references(() => users.id, { onDelete: 'set null' })
     : text('opponent_id').references(() => users.id, { onDelete: 'set null' }),
   status: varchar_field('status', 20).notNull(), // 'waiting', 'in_progress', 'completed', 'forfeit'
-  current_turn: process.env.DATABASE_TYPE === 'postgres'
+  current_turn: isPostgres
     ? uuid('current_turn').references(() => users.id, { onDelete: 'set null' })
     : text('current_turn').references(() => users.id, { onDelete: 'set null' }),
   game_state: json_field('game_state'), // Stores full game state (choices, winner, loser, etc.)
   game_phase: varchar_field('game_phase', 30), // 'lobby', 'choosing', 'result', 'truth_dare_selection', 'chat', 'completed'
-  winner_id: process.env.DATABASE_TYPE === 'postgres'
+  winner_id: isPostgres
     ? uuid('winner_id').references(() => users.id, { onDelete: 'set null' })
     : text('winner_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp_field('created_at').notNull(),
@@ -106,10 +108,10 @@ const games = createTable('games', {
 // Game Moves table
 const game_moves = createTable('game_moves', {
   id: id(),
-  game_id: process.env.DATABASE_TYPE === 'postgres'
+  game_id: isPostgres
     ? uuid('game_id').references(() => games.id, { onDelete: 'cascade' }).notNull()
     : text('game_id').references(() => games.id, { onDelete: 'cascade' }).notNull(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'set null' })
     : text('user_id').references(() => users.id, { onDelete: 'set null' }),
   move_type: varchar_field('move_type', 20).notNull(), // 'rps', 'truth', 'dare'
@@ -123,7 +125,7 @@ const game_moves = createTable('game_moves', {
 // Notifications table
 const notifications = createTable('notifications', {
   id: id(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   type: varchar_field('type', 50).notNull(), // 'game_invite', 'your_turn', 'friend_request', etc.
@@ -141,7 +143,7 @@ const notifications = createTable('notifications', {
 const refresh_tokens = createTable('refresh_tokens', {
   id: id(),
   token_hash: varchar_field('token_hash', 255).unique().notNull(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   device_info: varchar_field('device_info', 255),
@@ -156,7 +158,7 @@ const refresh_tokens = createTable('refresh_tokens', {
 const email_verification_tokens = createTable('email_verification_tokens', {
   id: id(),
   token: varchar_field('token', 255).unique().notNull(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   expires_at: timestamp_field('expires_at').notNull(),
@@ -169,7 +171,7 @@ const email_verification_tokens = createTable('email_verification_tokens', {
 const password_reset_tokens = createTable('password_reset_tokens', {
   id: id(),
   token: varchar_field('token', 255).unique().notNull(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   expires_at: timestamp_field('expires_at').notNull(),
@@ -181,7 +183,7 @@ const password_reset_tokens = createTable('password_reset_tokens', {
 // FCM Tokens table (for push notifications)
 const fcm_tokens = createTable('fcm_tokens', {
   id: id(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   token: varchar_field('token', 500).unique().notNull(),
@@ -194,17 +196,17 @@ const fcm_tokens = createTable('fcm_tokens', {
 
 // Keep existing messages table compatible
 const messages = createTable('messages', {
-  id: process.env.DATABASE_TYPE === 'postgres'
+  id: isPostgres
     ? uuid('id').defaultRandom().primaryKey()
     : text('id').primaryKey(),
   room: varchar_field('room', 100).notNull(),
   username: varchar_field('username', 100).notNull(),
   content: varchar_field('content', 5000).notNull(),
   type: varchar_field('type', 50).notNull(),
-  user_id: process.env.DATABASE_TYPE === 'postgres'
+  user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'set null' })
     : text('user_id').references(() => users.id, { onDelete: 'set null' }), // Nullable for anonymous users
-  game_id: process.env.DATABASE_TYPE === 'postgres'
+  game_id: isPostgres
     ? uuid('game_id').references(() => games.id, { onDelete: 'cascade' })
     : text('game_id').references(() => games.id, { onDelete: 'cascade' }),
   timestamp: timestamp_field('timestamp').notNull(),
