@@ -306,17 +306,26 @@ function updateSocketMapping(room, username, newSocketId) {
 }
 
 // Helper function to save system messages to database
-function saveSystemMessage(room, content) {
+async function saveSystemMessage(room, content) {
   const id = uuidv4();
-  db.run(
-    "INSERT INTO messages (id, room, username, content, type) VALUES (?, ?, ?, ?, ?)",
-    [id, room, "System", content, "system"],
-    (err) => {
-      if (err) {
-        console.error('❌ Error saving system message:', err);
-      }
-    }
-  );
+
+  try {
+    const { getDatabase } = require('./db');
+    const { messages } = require('./db/schema');
+    const drizzleDb = getDatabase();
+
+    await drizzleDb.insert(messages).values({
+      id,
+      room,
+      username: "System",
+      content,
+      type: "system",
+      timestamp: new Date()
+    });
+  } catch (err) {
+    console.error('❌ Error saving system message:', err);
+  }
+
   return { id, room, username: "System", content, type: "system" };
 }
 
@@ -466,7 +475,7 @@ io.on("connection", (socket) => {
       games[room].gamePhase = 'choosing';
 
       // Save system message for choice
-      const choiceMsg = saveSystemMessage(room, `${username} chose ${choice}`);
+      const choiceMsg = await saveSystemMessage(room, `${username} chose ${choice}`);
       io.to(room).emit("newMessage", choiceMsg);
 
       // Check if both players have made their choices
@@ -489,7 +498,7 @@ io.on("connection", (socket) => {
           const socketId2 = getSocketIdByUsername(room, username2);
 
           // Save system message for tie
-          const tieMsg = saveSystemMessage(room, `${username1}: It's a tie`);
+          const tieMsg = await saveSystemMessage(room, `${username1}: It's a tie`);
           io.to(room).emit("newMessage", tieMsg);
 
           if (socketId1) io.to(socketId1).emit("result", { message: result[username1] });
@@ -516,8 +525,8 @@ io.on("connection", (socket) => {
           const loserSocketId = getSocketIdByUsername(room, loserUsername);
 
           // Save system messages for win/lose
-          const winMsg = saveSystemMessage(room, `${winnerUsername}: You win! You may ask a truth or give a dare.`);
-          const loseMsg = saveSystemMessage(room, `${loserUsername}: You lose! Choose Truth or Dare.`);
+          const winMsg = await saveSystemMessage(room, `${winnerUsername}: You win! You may ask a truth or give a dare.`);
+          const loseMsg = await saveSystemMessage(room, `${loserUsername}: You lose! Choose Truth or Dare.`);
           io.to(room).emit("newMessage", winMsg);
           io.to(room).emit("newMessage", loseMsg);
 
@@ -560,7 +569,7 @@ io.on("connection", (socket) => {
         games[room].gamePhase = 'chat';
 
         // Save system message for truth/dare selection
-        const tdMsg = saveSystemMessage(room, `${username} chose <strong>${selection}</strong>`);
+        const tdMsg = await saveSystemMessage(room, `${username} chose <strong>${selection}</strong>`);
         io.to(room).emit("newMessage", tdMsg);
 
         // Hide modal for both players

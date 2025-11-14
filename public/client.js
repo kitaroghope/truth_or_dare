@@ -253,8 +253,8 @@ function appendMessage(msg) {
 
   // Handle system messages differently
   if (msg.type === "system") {
-    div.classList.add("from-them");
-    div.innerHTML = `<em>${msg.content}</em>`;
+    div.classList.add("system-message");
+    div.innerHTML = `${msg.content}`;
   } else {
     div.classList.add(msg.username === username ? "from-me" : "from-them");
 

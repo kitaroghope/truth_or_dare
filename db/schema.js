@@ -1,5 +1,8 @@
-const { sqliteTable, text, integer, index } = require('drizzle-orm/sqlite-core');
-const { pgTable, uuid, varchar, timestamp, boolean, json, uniqueIndex } = require('drizzle-orm/pg-core');
+// Load environment variables first
+require('dotenv').config();
+
+const { sqliteTable, text, integer: sqliteInteger, index } = require('drizzle-orm/sqlite-core');
+const { pgTable, uuid, varchar, timestamp, boolean, json, integer: pgInteger, uniqueIndex } = require('drizzle-orm/pg-core');
 const { sql } = require('drizzle-orm');
 
 // Determine which table creator to use based on DATABASE_TYPE env var
@@ -14,7 +17,7 @@ const id = () => isPostgres
 
 const timestamp_field = (name) => isPostgres
   ? timestamp(name).defaultNow()
-  : integer(name, { mode: 'timestamp' }).default(sql`(unixepoch())`);
+  : sqliteInteger(name, { mode: 'timestamp' }).default(sql`(unixepoch())`);
 
 const varchar_field = (name, length = 255) => isPostgres
   ? varchar(name, { length })
@@ -22,11 +25,15 @@ const varchar_field = (name, length = 255) => isPostgres
 
 const boolean_field = (name) => isPostgres
   ? boolean(name).default(false)
-  : integer(name, { mode: 'boolean' }).default(false);
+  : sqliteInteger(name, { mode: 'boolean' }).default(false);
 
 const json_field = (name) => isPostgres
   ? json(name)
   : text(name, { mode: 'json' });
+
+const integer_field = (name) => isPostgres
+  ? pgInteger(name)
+  : sqliteInteger(name);
 
 // Users table
 const users = createTable('users', {
@@ -50,11 +57,11 @@ const user_stats = createTable('user_stats', {
   user_id: isPostgres
     ? uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull()
     : text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  games_played: integer('games_played').default(0).notNull(),
-  games_won: integer('games_won').default(0).notNull(),
-  games_lost: integer('games_lost').default(0).notNull(),
-  truths_completed: integer('truths_completed').default(0).notNull(),
-  dares_completed: integer('dares_completed').default(0).notNull(),
+  games_played: integer_field('games_played').default(0).notNull(),
+  games_won: integer_field('games_won').default(0).notNull(),
+  games_lost: integer_field('games_lost').default(0).notNull(),
+  truths_completed: integer_field('truths_completed').default(0).notNull(),
+  dares_completed: integer_field('dares_completed').default(0).notNull(),
   created_at: timestamp_field('created_at').notNull(),
 }, (table) => ({
   userIdIdx: index('user_stats_user_id_idx').on(table.user_id),
