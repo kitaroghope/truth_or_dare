@@ -190,6 +190,16 @@ async function fetchCurrentUser() {
     if (response.ok) {
       const data = await response.json();
       currentUser = data.user;
+
+      // Sync username with localStorage for game client
+      if (currentUser.username) {
+        const cachedUsername = localStorage.getItem("td_username");
+        if (cachedUsername !== currentUser.username) {
+          console.log(`✅ Syncing username: "${cachedUsername}" → "${currentUser.username}"`);
+          localStorage.setItem("td_username", currentUser.username);
+        }
+      }
+
       updateAuthUI(true);
     } else {
       clearTokens();

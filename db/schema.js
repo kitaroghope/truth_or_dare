@@ -85,24 +85,20 @@ const friendships = createTable('friendships', {
 }));
 
 // Games table
+// Note: creator_id, opponent_id, current_turn, and winner_id can be either:
+//   - Real user IDs (UUID) for authenticated users
+//   - Anonymous IDs (anon_xxxx) for anonymous users
+// No foreign key constraints to support anonymous users
 const games = createTable('games', {
   id: id(),
   room_code: varchar_field('room_code', 50).unique().notNull(),
-  creator_id: isPostgres
-    ? uuid('creator_id').references(() => users.id, { onDelete: 'set null' })
-    : text('creator_id').references(() => users.id, { onDelete: 'set null' }),
-  opponent_id: isPostgres
-    ? uuid('opponent_id').references(() => users.id, { onDelete: 'set null' })
-    : text('opponent_id').references(() => users.id, { onDelete: 'set null' }),
+  creator_id: varchar_field('creator_id', 100), // Can be UUID or anon_xxxx
+  opponent_id: varchar_field('opponent_id', 100), // Can be UUID or anon_xxxx
   status: varchar_field('status', 20).notNull(), // 'waiting', 'in_progress', 'completed', 'forfeit'
-  current_turn: isPostgres
-    ? uuid('current_turn').references(() => users.id, { onDelete: 'set null' })
-    : text('current_turn').references(() => users.id, { onDelete: 'set null' }),
+  current_turn: varchar_field('current_turn', 100), // Can be UUID or anon_xxxx
   game_state: json_field('game_state'), // Stores full game state (choices, winner, loser, etc.)
   game_phase: varchar_field('game_phase', 30), // 'lobby', 'choosing', 'result', 'truth_dare_selection', 'chat', 'completed'
-  winner_id: isPostgres
-    ? uuid('winner_id').references(() => users.id, { onDelete: 'set null' })
-    : text('winner_id').references(() => users.id, { onDelete: 'set null' }),
+  winner_id: varchar_field('winner_id', 100), // Can be UUID or anon_xxxx
   created_at: timestamp_field('created_at').notNull(),
   updated_at: timestamp_field('updated_at').notNull(),
 }, (table) => ({
@@ -118,9 +114,7 @@ const game_moves = createTable('game_moves', {
   game_id: isPostgres
     ? uuid('game_id').references(() => games.id, { onDelete: 'cascade' }).notNull()
     : text('game_id').references(() => games.id, { onDelete: 'cascade' }).notNull(),
-  user_id: isPostgres
-    ? uuid('user_id').references(() => users.id, { onDelete: 'set null' })
-    : text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  user_id: varchar_field('user_id', 100), // Can be UUID or anon_xxxx
   move_type: varchar_field('move_type', 20).notNull(), // 'rps', 'truth', 'dare'
   move_data: json_field('move_data'), // Stores move details (choice, response, etc.)
   timestamp: timestamp_field('timestamp').notNull(),

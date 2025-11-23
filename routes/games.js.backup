@@ -202,246 +202,6 @@ router.post('/join/:roomCode', optionalAuth, async (req, res) => {
 });
 
 /**
- * IMPORTANT: Specific routes must come BEFORE generic /:gameId route
- * to avoid route matching conflicts
- */
-
-/**
- * GET /api/games/history/me
- * Get game history for authenticated user OR anonymous user
- * For anonymous users: pass userId in query params (?userId=anon_xxx)
- */
-router.get('/history/me', optionalAuth, async (req, res) => {
-  try {
-    // Get userId from authenticated user OR query params (for anonymous)
-    const userId = req.user?.id || req.query.userId;
-    const userType = req.user ? 'authenticated' : 'anonymous';
-
-    console.log(`📊 [GAME HISTORY] Request from ${userType} user: ${userId}`);
-
-    if (!userId) {
-      console.log('❌ [GAME HISTORY] Request rejected: No userId provided');
-      return res.status(400).json({
-        error: 'Validation error',
-        message: 'User ID required. Please login or provide userId parameter.',
-      });
-    }
-
-    const { limit = 10, offset = 0 } = req.query;
-    console.log(`📊 [GAME HISTORY] Query params: limit=${limit}, offset=${offset}`);
-
-    const db = getDatabase();
-
-    const gamesResult = await db
-      .select()
-      .from(games)
-      .where(
-        and(
-          or(
-            eq(games.creator_id, userId),
-            eq(games.opponent_id, userId)
-          ),
-          eq(games.status, 'completed')
-        )
-      )
-      .orderBy(desc(games.updated_at))
-      .limit(parseInt(limit))
-      .offset(parseInt(offset));
-
-    console.log(`✅ [GAME HISTORY] Found ${gamesResult.length} completed games for user ${userId}`);
-
-    if (gamesResult.length > 0) {
-      console.log(`📋 [GAME HISTORY] Game IDs: ${gamesResult.map(g => g.room_code).join(', ')}`);
-    }
-
-    const formattedGames = gamesResult.map(game => formatGameForClient(game));
-
-    res.status(200).json({
-      games: formattedGames,
-      total: gamesResult.length,
-    });
-  } catch (error) {
-    console.error('❌ [GAME HISTORY] Error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to fetch game history',
-    });
-  }
-});
-
-/**
- * GET /api/games/my-games
- * Get all games (active + completed) for a user
- * Supports both authenticated and anonymous users
- */
-router.get('/my-games', optionalAuth, async (req, res) => {
-  try {
-    const userId = req.user?.id || req.query.userId;
-    const userType = req.user ? 'authenticated' : 'anonymous';
-
-    console.log(`🎮 [MY GAMES] Request from ${userType} user: ${userId}`);
-
-    if (!userId) {
-      console.log('❌ [MY GAMES] Request rejected: No userId provided');
-      return res.status(400).json({
-        error: 'Validation error',
-        message: 'User ID required',
-      });
-    }
-
-    const { status, limit = 20, offset = 0 } = req.query;
-    console.log(`🎮 [MY GAMES] Filters: status=${status || 'all'}, limit=${limit}, offset=${offset}`);
-
-    const db = getDatabase();
-
-    // Build query conditions
-    const conditions = [
-      or(
-        eq(games.creator_id, userId),
-        eq(games.opponent_id, userId)
-      )
-    ];
-
-    // Add status filter if provided
-    if (status) {
-      conditions.push(eq(games.status, status));
-    }
-
-    const gamesResult = await db
-      .select()
-      .from(games)
-      .where(and(...conditions))
-      .orderBy(desc(games.updated_at))
-      .limit(parseInt(limit))
-      .offset(parseInt(offset));
-
-    console.log(`✅ [MY GAMES] Found ${gamesResult.length} games for user ${userId}`);
-
-    // Log breakdown by status
-    const statusBreakdown = gamesResult.reduce((acc, game) => {
-      acc[game.status] = (acc[game.status] || 0) + 1;
-      return acc;
-    }, {});
-    console.log(`📊 [MY GAMES] Status breakdown:`, statusBreakdown);
-
-    const formattedGames = gamesResult.map(game => formatGameForClient(game));
-
-    res.status(200).json({
-      games: formattedGames,
-      total: gamesResult.length,
-    });
-  } catch (error) {
-    console.error('❌ [MY GAMES] Error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to fetch games',
-    });
-  }
-});
-
-/**
- * GET /api/games/active
- * Get active games (waiting or in_progress) for a user
- */
-router.get('/active', optionalAuth, async (req, res) => {
-  try {
-    const userId = req.user?.id || req.query.userId;
-    const userType = req.user ? 'authenticated' : 'anonymous';
-
-    console.log(`⚡ [ACTIVE GAMES] Request from ${userType} user: ${userId}`);
-
-    if (!userId) {
-      console.log('❌ [ACTIVE GAMES] Request rejected: No userId provided');
-      return res.status(400).json({
-        error: 'Validation error',
-        message: 'User ID required',
-      });
-    }
-
-    const db = getDatabase();
-
-    const gamesResult = await db
-      .select()
-      .from(games)
-      .where(
-        and(
-          or(
-            eq(games.creator_id, userId),
-            eq(games.opponent_id, userId)
-          ),
-          or(
-            eq(games.status, 'waiting'),
-            eq(games.status, 'in_progress')
-          )
-        )
-      )
-      .orderBy(desc(games.updated_at));
-
-    console.log(`✅ [ACTIVE GAMES] Found ${gamesResult.length} active games for user ${userId}`);
-
-    // Log each active game details and get opponent info
-    const formattedGames = await Promise.all(gamesResult.map(async game => {
-      const role = game.creator_id === userId ? 'creator' : 'opponent';
-      const opponentUserId = game.creator_id === userId ? game.opponent_id : game.creator_id;
-
-      console.log(`   🎯 Room ${game.room_code}: ${game.status} (user is ${role})`);
-
-      // Get opponent username from game_state or users table
-      let opponentName = null;
-
-      if (opponentUserId) {
-        // First try to get from game_state
-        try {
-          const gameState = typeof game.game_state === 'string'
-            ? JSON.parse(game.game_state)
-            : game.game_state;
-
-          if (gameState && gameState.users && gameState.users[opponentUserId]) {
-            opponentName = gameState.users[opponentUserId].username;
-          }
-        } catch (e) {
-          console.log(`   ⚠️ Could not parse game_state for opponent username`);
-        }
-
-        // If not in game_state, try users table (for authenticated users)
-        if (!opponentName && !opponentUserId.startsWith('anon_')) {
-          try {
-            const opponentResult = await db
-              .select({ username: users.username })
-              .from(users)
-              .where(eq(users.id, opponentUserId))
-              .limit(1);
-
-            if (opponentResult.length > 0) {
-              opponentName = opponentResult[0].username;
-            }
-          } catch (e) {
-            console.log(`   ⚠️ Could not fetch opponent from users table`);
-          }
-        }
-      }
-
-      return {
-        ...formatGameForClient(game),
-        opponentName,
-        userRole: role,
-      };
-    }));
-
-    res.status(200).json({
-      games: formattedGames,
-      total: gamesResult.length,
-    });
-  } catch (error) {
-    console.error('❌ [ACTIVE GAMES] Error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to fetch active games',
-    });
-  }
-});
-
-/**
  * GET /api/games/:gameId
  * Get game state
  */
@@ -757,6 +517,199 @@ router.post('/:gameId/complete', optionalAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/games/history/me
+ * Get game history for authenticated user OR anonymous user
+ * For anonymous users: pass userId in query params (?userId=anon_xxx)
+ */
+router.get('/history/me', optionalAuth, async (req, res) => {
+  try {
+    // Get userId from authenticated user OR query params (for anonymous)
+    const userId = req.user?.id || req.query.userId;
+    const userType = req.user ? 'authenticated' : 'anonymous';
+
+    console.log(`📊 [GAME HISTORY] Request from ${userType} user: ${userId}`);
+
+    if (!userId) {
+      console.log('❌ [GAME HISTORY] Request rejected: No userId provided');
+      return res.status(400).json({
+        error: 'Validation error',
+        message: 'User ID required. Please login or provide userId parameter.',
+      });
+    }
+
+    const { limit = 10, offset = 0 } = req.query;
+    console.log(`📊 [GAME HISTORY] Query params: limit=${limit}, offset=${offset}`);
+
+    const db = getDatabase();
+
+    const gamesResult = await db
+      .select()
+      .from(games)
+      .where(
+        and(
+          or(
+            eq(games.creator_id, userId),
+            eq(games.opponent_id, userId)
+          ),
+          eq(games.status, 'completed')
+        )
+      )
+      .orderBy(desc(games.updated_at))
+      .limit(parseInt(limit))
+      .offset(parseInt(offset));
+
+    console.log(`✅ [GAME HISTORY] Found ${gamesResult.length} completed games for user ${userId}`);
+
+    if (gamesResult.length > 0) {
+      console.log(`📋 [GAME HISTORY] Game IDs: ${gamesResult.map(g => g.room_code).join(', ')}`);
+    }
+
+    const formattedGames = gamesResult.map(game => formatGameForClient(game));
+
+    res.status(200).json({
+      games: formattedGames,
+      total: gamesResult.length,
+    });
+  } catch (error) {
+    console.error('❌ [GAME HISTORY] Error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to fetch game history',
+    });
+  }
+});
+
+/**
+ * GET /api/games/my-games
+ * Get all games (active + completed) for a user
+ * Supports both authenticated and anonymous users
+ */
+router.get('/my-games', optionalAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.userId;
+    const userType = req.user ? 'authenticated' : 'anonymous';
+
+    console.log(`🎮 [MY GAMES] Request from ${userType} user: ${userId}`);
+
+    if (!userId) {
+      console.log('❌ [MY GAMES] Request rejected: No userId provided');
+      return res.status(400).json({
+        error: 'Validation error',
+        message: 'User ID required',
+      });
+    }
+
+    const { status, limit = 20, offset = 0 } = req.query;
+    console.log(`🎮 [MY GAMES] Filters: status=${status || 'all'}, limit=${limit}, offset=${offset}`);
+
+    const db = getDatabase();
+
+    // Build query conditions
+    const conditions = [
+      or(
+        eq(games.creator_id, userId),
+        eq(games.opponent_id, userId)
+      )
+    ];
+
+    // Add status filter if provided
+    if (status) {
+      conditions.push(eq(games.status, status));
+    }
+
+    const gamesResult = await db
+      .select()
+      .from(games)
+      .where(and(...conditions))
+      .orderBy(desc(games.updated_at))
+      .limit(parseInt(limit))
+      .offset(parseInt(offset));
+
+    console.log(`✅ [MY GAMES] Found ${gamesResult.length} games for user ${userId}`);
+
+    // Log breakdown by status
+    const statusBreakdown = gamesResult.reduce((acc, game) => {
+      acc[game.status] = (acc[game.status] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`📊 [MY GAMES] Status breakdown:`, statusBreakdown);
+
+    const formattedGames = gamesResult.map(game => formatGameForClient(game));
+
+    res.status(200).json({
+      games: formattedGames,
+      total: gamesResult.length,
+    });
+  } catch (error) {
+    console.error('❌ [MY GAMES] Error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to fetch games',
+    });
+  }
+});
+
+/**
+ * GET /api/games/active
+ * Get active games (waiting or in_progress) for a user
+ */
+router.get('/active', optionalAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.userId;
+    const userType = req.user ? 'authenticated' : 'anonymous';
+
+    console.log(`⚡ [ACTIVE GAMES] Request from ${userType} user: ${userId}`);
+
+    if (!userId) {
+      console.log('❌ [ACTIVE GAMES] Request rejected: No userId provided');
+      return res.status(400).json({
+        error: 'Validation error',
+        message: 'User ID required',
+      });
+    }
+
+    const db = getDatabase();
+
+    const gamesResult = await db
+      .select()
+      .from(games)
+      .where(
+        and(
+          or(
+            eq(games.creator_id, userId),
+            eq(games.opponent_id, userId)
+          ),
+          or(
+            eq(games.status, 'waiting'),
+            eq(games.status, 'in_progress')
+          )
+        )
+      )
+      .orderBy(desc(games.updated_at));
+
+    console.log(`✅ [ACTIVE GAMES] Found ${gamesResult.length} active games for user ${userId}`);
+
+    // Log each active game details
+    gamesResult.forEach(game => {
+      const role = game.creator_id === userId ? 'creator' : 'opponent';
+      console.log(`   🎯 Room ${game.room_code}: ${game.status} (user is ${role})`);
+    });
+
+    const formattedGames = gamesResult.map(game => formatGameForClient(game));
+
+    res.status(200).json({
+      games: formattedGames,
+      total: gamesResult.length,
+    });
+  } catch (error) {
+    console.error('❌ [ACTIVE GAMES] Error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to fetch active games',
+    });
+  }
+});
 
 /**
  * POST /api/games/:gameId/invite

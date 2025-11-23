@@ -14,6 +14,171 @@ const socket = io();
 let room = new URLSearchParams(window.location.search).get("group") || "";
 let username = localStorage.getItem("td_username") || "";
 
+// Anonymous user ID management
+function getOrCreateAnonymousId() {
+  let anonymousId = localStorage.getItem("td_anonymous_id");
+  if (!anonymousId) {
+    // Generate a unique anonymous ID (UUID v4)
+    anonymousId = 'anon_' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+    localStorage.setItem("td_anonymous_id", anonymousId);
+  }
+  return anonymousId;
+}
+
+// Get user identifier (logged-in user ID or anonymous ID)
+function getUserIdentifier() {
+  // Check if user is logged in (has access token)
+  const accessToken = localStorage.getItem('td_accessToken');
+  if (accessToken && window.getCurrentUser) {
+    const currentUser = window.getCurrentUser();
+    if (currentUser && currentUser.id) {
+      return currentUser.id; // Return actual user ID
+    }
+  }
+  // Return anonymous ID for non-logged-in users
+  return getOrCreateAnonymousId();
+}
+
+// Check for session transfer in URL on page load
+function checkSessionTransfer() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const sessionId = urlParams.get('session');
+  const sessionUsername = urlParams.get('username');
+
+  // Only import session if user is not logged in
+  const accessToken = localStorage.getItem('td_accessToken');
+  if (!accessToken && sessionId && sessionId.startsWith('anon_')) {
+    // Ask user if they want to import this session
+    const currentAnonymousId = localStorage.getItem("td_anonymous_id");
+
+    if (currentAnonymousId !== sessionId) {
+      const message = sessionUsername
+        ? `Import session for "${sessionUsername}"? This will replace your current anonymous session.`
+        : `Import anonymous session? This will replace your current session.`;
+
+      if (confirm(message)) {
+        localStorage.setItem("td_anonymous_id", sessionId);
+        if (sessionUsername) {
+          localStorage.setItem("td_username", sessionUsername);
+          username = sessionUsername;
+        }
+        console.log(`✅ Session imported: ${sessionId}`);
+
+        // Clean URL (remove session params)
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+
+        // Show success message
+        alert(`Session imported successfully! You can now continue as ${sessionUsername || 'anonymous user'}.`);
+
+        // Refresh to apply changes
+        location.reload();
+      } else {
+        // User declined, clean URL
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } else {
+      // Same session, just clean URL
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }
+}
+
+// Generate session transfer link
+function generateSessionTransferLink() {
+  // Only for anonymous users
+  const accessToken = localStorage.getItem('td_accessToken');
+  if (accessToken) {
+    alert('Session transfer is only available for anonymous users. Logged-in users can access their account from any device by logging in.');
+    return null;
+  }
+
+  const anonymousId = getOrCreateAnonymousId();
+  const currentUsername = localStorage.getItem("td_username") || "Anonymous";
+
+  const baseUrl = window.location.origin + window.location.pathname;
+  const transferLink = `${baseUrl}?session=${encodeURIComponent(anonymousId)}&username=${encodeURIComponent(currentUsername)}`;
+
+  return transferLink;
+}
+
+// Copy session transfer link to clipboard
+function copySessionTransferLink() {
+  const link = generateSessionTransferLink();
+  if (!link) return;
+
+  navigator.clipboard.writeText(link).then(() => {
+    alert(`✅ Session transfer link copied to clipboard!\n\nShare this link to access your session on another device:\n${link}`);
+  }).catch(err => {
+    // Fallback for older browsers
+    const textarea = document.createElement('textarea');
+    textarea.value = link;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    alert(`✅ Session transfer link copied!\n\n${link}`);
+  });
+}
+
+// Show session transfer modal
+function showSessionTransferModal() {
+  const link = generateSessionTransferLink();
+  if (!link) return;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+
+  modal.innerHTML = `
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+      <h3 style="margin-top: 0;">📱 Transfer Session to Another Device</h3>
+      <p>Use this link to continue your session on another device:</p>
+      <input type="text" value="${link}" readonly
+        style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; margin: 10px 0; font-size: 12px;"
+        onclick="this.select()">
+      <div style="margin-top: 20px; display: flex; gap: 10px;">
+        <button onclick="copySessionTransferLink(); document.body.lastChild.remove();"
+          style="flex: 1; padding: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+          📋 Copy Link
+        </button>
+        <button onclick="document.body.lastChild.remove();"
+          style="flex: 1; padding: 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+          Close
+        </button>
+      </div>
+      <p style="margin-top: 15px; font-size: 12px; color: #666;">
+        ⚠️ Keep this link private! Anyone with this link can access your anonymous session and games.
+      </p>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
+
 const setupDiv = document.getElementById("setup");
 const gameUI = document.getElementById("gameUI");
 const roomLabel = document.getElementById("roomLabel");
@@ -79,8 +244,11 @@ function joinGame() {
   const url = `?group=${room}&user=${username}`;
   window.history.replaceState({}, "", url);
 
-  // Emit join request to server
-  socket.emit("joinRoom", { room, username });
+  // Get user identifier (user ID or anonymous ID)
+  const userId = getUserIdentifier();
+
+  // Emit join request to server with both username and userId
+  socket.emit("joinRoom", { room, username, userId });
 }
 
 function leaveRoom() {
@@ -627,29 +795,100 @@ socket.on("gameStateUpdate", ({ state }) => {
 });
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Check for session transfer in URL
+  checkSessionTransfer();
+
   // Setup room list functionality
   setupRoomList();
-  
+
+  // Load user's active games from database
+  loadUserActiveGames();
+
   // Setup username saving
   setupUsernameHandling();
-  
+
   // Setup chat input
   setupChatInput();
-  
+
   // Setup file input change handler
   setupFileInput();
-  
+
   // Check microphone support
   checkMicrophoneSupport();
 });
 
+// Load user's active games from database
+async function loadUserActiveGames() {
+  try {
+    const userId = getUserIdentifier();
+    console.log(`📊 Loading active games for user: ${userId}`);
+
+    const response = await fetch(`/api/games/active?userId=${encodeURIComponent(userId)}`);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`✅ Found ${data.games.length} active games`);
+
+      // Display active games in the UI
+      displayActiveGames(data.games);
+    } else {
+      console.log('⚠️ Failed to load active games:', response.status);
+    }
+  } catch (error) {
+    console.error('❌ Error loading active games:', error);
+  }
+}
+
+// Display active games in the room list
+function displayActiveGames(games) {
+  const roomsList = document.getElementById('roomsList');
+
+  if (!roomsList) return;
+
+  // Clear existing list
+  roomsList.innerHTML = '';
+
+  if (games.length === 0) {
+    roomsList.innerHTML = '<li class="list-group-item text-center text-muted">No active games. Create one!</li>';
+    return;
+  }
+
+  games.forEach(game => {
+    const roomItem = document.createElement('li');
+    roomItem.className = 'list-group-item room-item';
+
+    const statusBadge = game.status === 'waiting'
+      ? '<span class="badge bg-warning">Waiting for opponent</span>'
+      : '<span class="badge bg-success">In Progress</span>';
+
+    // Display opponent name if available
+    const opponentDisplay = game.opponentName
+      ? `<div class="text-muted small">vs ${game.opponentName}</div>`
+      : '';
+
+    roomItem.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div>
+            <span>🏠 Room: ${game.roomCode}</span>
+            ${statusBadge}
+          </div>
+          ${opponentDisplay}
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="joinRoom('${game.roomCode}')">Rejoin</button>
+      </div>
+    `;
+    roomsList.appendChild(roomItem);
+  });
+}
+
 function setupRoomList() {
   const roomsList = document.getElementById('roomsList');
   const createRoomBtn = document.getElementById('createRoomBtn');
-  
+
   // Request available rooms
   socket.emit('getRooms');
-  
+
   createRoomBtn.addEventListener('click', () => {
     const roomId = generateRoomId();
     room = roomId;
@@ -659,26 +898,11 @@ function setupRoomList() {
       alert('Please enter a username first!');
     }
   });
-  
-  // Handle room list updates
+
+  // Handle room list updates (from socket - live rooms)
   socket.on('roomsList', (rooms) => {
-    roomsList.innerHTML = '';
-    if (rooms.length === 0) {
-      roomsList.innerHTML = '<li class="list-group-item text-center text-muted">No rooms available. Create one!</li>';
-    } else {
-      rooms.forEach(roomId => {
-        const roomItem = document.createElement('li');
-        roomItem.className = 'list-group-item room-item';
-        roomItem.innerHTML = `
-          <div class="d-flex justify-content-between align-items-center">
-            <span>🏠 Room: ${roomId}</span>
-            <button class="btn btn-sm btn-outline-primary" onclick="joinRoom('${roomId}')">Join</button>
-          </div>
-        `;
-        // roomsList.appendChild(roomItem);
-        console.log(roomId);
-      });
-    }
+    console.log(`🔴 Live rooms from socket: ${rooms.length}`);
+    // We're now using database queries instead for persistent games
   });
 }
 

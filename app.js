@@ -254,54 +254,61 @@ const {
 // Create debounced save function
 const scheduleSaveGameState = debouncedSaveGameState(500);
 
-// In-memory game state - NOW USERNAME-BASED
-// Structure: { [roomCode]: { users: { [username]: socketId }, choices: { [username]: choice }, winner: username, loser: username, ... } }
+// In-memory game state - NOW USER-ID-BASED (supports both authenticated and anonymous users)
+// Structure: { [roomCode]: { users: { [userId]: {socketId, username} }, choices: { [userId]: choice }, winner: userId, loser: userId, ... } }
 const games = {};
 
-// Helper functions for username ↔ socket mapping
-function getSocketIdByUsername(room, username) {
+// Helper functions for userId ↔ socket mapping
+function getSocketIdByUserId(room, userId) {
   if (!games[room] || !games[room].users) {
-    console.warn(`⚠️  getSocketIdByUsername: Room ${room} not found`);
+    console.warn(`⚠️  getSocketIdByUserId: Room ${room} not found`);
     return null;
   }
 
-  const socketId = games[room].users[username];
-  if (!socketId) {
-    console.warn(`⚠️  getSocketIdByUsername: Username "${username}" not found in room ${room}`);
+  const userInfo = games[room].users[userId];
+  if (!userInfo || !userInfo.socketId) {
+    console.warn(`⚠️  getSocketIdByUserId: User ID "${userId}" not found in room ${room}`);
     return null;
   }
 
   // Validate that socket still exists
-  const socket = io.sockets.sockets.get(socketId);
+  const socket = io.sockets.sockets.get(userInfo.socketId);
   if (!socket || !socket.connected) {
-    console.warn(`⚠️  Socket ${socketId} for "${username}" is no longer connected`);
+    console.warn(`⚠️  Socket ${userInfo.socketId} for user "${userId}" is no longer connected`);
     return null;
   }
 
-  return socketId;
+  return userInfo.socketId;
 }
 
-function getUsernameBySocketId(room, socketId) {
+function getUserIdBySocketId(room, socketId) {
   if (!games[room] || !games[room].users) {
-    console.warn(`⚠️  getUsernameBySocketId: Room ${room} not found`);
+    console.warn(`⚠️  getUserIdBySocketId: Room ${room} not found`);
     return null;
   }
 
-  const username = Object.keys(games[room].users).find(username => games[room].users[username] === socketId);
-  if (!username) {
-    console.warn(`⚠️  getUsernameBySocketId: Socket ${socketId} not found in room ${room}`);
+  const userId = Object.keys(games[room].users).find(uid => games[room].users[uid].socketId === socketId);
+  if (!userId) {
+    console.warn(`⚠️  getUserIdBySocketId: Socket ${socketId} not found in room ${room}`);
   }
 
-  return username || null;
+  return userId || null;
 }
 
-function updateSocketMapping(room, username, newSocketId) {
+function getUsernameByUserId(room, userId) {
+  if (!games[room] || !games[room].users || !games[room].users[userId]) {
+    return null;
+  }
+  return games[room].users[userId].username;
+}
+
+function updateSocketMapping(room, userId, newSocketId, username) {
   if (!games[room]) {
     console.warn(`⚠️  updateSocketMapping: Room ${room} not found`);
     return false;
   }
-  games[room].users[username] = newSocketId;
-  console.log(`✅ Updated socket mapping: ${username} → ${newSocketId} in room ${room}`);
+  games[room].users[userId] = { socketId: newSocketId, username };
+  console.log(`✅ Updated socket mapping: ${username} (${userId}) → ${newSocketId} in room ${room}`);
   return true;
 }
 
@@ -330,20 +337,32 @@ async function saveSystemMessage(room, content) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("joinRoom", async ({ room, username }) => {
+  socket.on("joinRoom", async ({ room, username, userId }) => {
+    const userType = userId?.startsWith('anon_') ? 'anonymous' : 'authenticated';
+    console.log(`🚪 [JOIN ROOM] ${userType} user "${username}" (${userId}) attempting to join room ${room}`);
+
+    // Validate inputs
+    if (!room || !username || !userId) {
+      console.log(`❌ [JOIN ROOM] Invalid join attempt - missing room, username, or userId`);
+      socket.emit("error", { message: "Invalid request" });
+      return;
+    }
+
     // Step 1: Try to load existing game from database
+    console.log(`🔍 [JOIN ROOM] Checking database for existing game in room ${room}...`);
     const dbGame = await loadGameState(room);
 
     if (!games[room]) {
+      console.log(`🆕 [JOIN ROOM] Room ${room} does not exist in memory, initializing...`);
       // Initialize in-memory state
       games[room] = {
-        users: {},           // { [username]: socketId }
-        choices: {},         // { [username]: choice }
+        users: {},           // { [userId]: {socketId, username} }
+        choices: {},         // { [userId]: choice }
         chatVisible: false,
         gameState: 'waiting',
         gamePhase: 'lobby',
-        winner: null,        // username, not socketId
-        loser: null,         // username, not socketId
+        winner: null,        // userId, not socketId
+        loser: null,         // userId, not socketId
         truthDareSelection: null,
         awaitingTruthDare: false
       };
@@ -360,44 +379,45 @@ io.on("connection", (socket) => {
         games[room].awaitingTruthDare = dbState.awaitingTruthDare || false;
         games[room].choices = dbState.choices || {};
 
-        console.log(`✅ Restored game state for room ${room} from database (phase: ${dbGame.gamePhase})`);
+        console.log(`✅ [JOIN ROOM] Restored game state for room ${room} from database (phase: ${dbGame.gamePhase}, creator: ${dbGame.creatorId}, opponent: ${dbGame.opponentId})`);
+      } else {
+        console.log(`🆕 [JOIN ROOM] No database record found, creating fresh game state`);
       }
     }
 
-    // Check if username already exists in this room
-    const existingSocketId = games[room].users[username];
-    const usernameExists = existingSocketId !== undefined;
-    const isRejoining = usernameExists && (existingSocketId === socket.id || existingSocketId === null);
-    const isDuplicateUsername = usernameExists && existingSocketId !== socket.id && existingSocketId !== null;
-
-    // Block duplicate usernames (different user trying to use existing name)
-    if (isDuplicateUsername) {
-      console.log(`❌ Username "${username}" already taken in room ${room}`);
-      socket.emit("nameExists");
-      return;
-    }
+    // Check if userId already exists in this room
+    const existingUserInfo = games[room].users[userId];
+    const userExists = existingUserInfo !== undefined;
+    const isRejoining = userExists && (existingUserInfo.socketId === socket.id || existingUserInfo.socketId === null);
 
     if (!isRejoining) {
       // New user joining - check room capacity
       const userCount = Object.keys(games[room].users).length;
+      console.log(`👥 [JOIN ROOM] Current players in room: ${userCount}/2`);
 
       if (userCount >= 2) {
-        console.log(`❌ Room ${room} is full (${userCount}/2 players)`);
+        console.log(`❌ [JOIN ROOM] Room ${room} is full (${userCount}/2 players)`);
         socket.emit("roomFull");
         return;
       }
     }
 
     // Update socket mapping (works for both new users and rejoining)
-    games[room].users[username] = socket.id;
-    console.log(`✅ User "${username}" ${isRejoining ? 'rejoined' : 'joined'} room ${room}`);
+    games[room].users[userId] = { socketId: socket.id, username };
+    const action = isRejoining ? 'rejoined' : 'joined';
+    console.log(`✅ [JOIN ROOM] User "${username}" (${userId}) ${action} room ${room}`);
+    console.log(`👥 [JOIN ROOM] Current users in room ${room}:`, Object.keys(games[room].users).map(id => `${games[room].users[id].username} (${id})`));
     socket.join(room);
+
+    // Sync with database: create or update game record
+    console.log(`💾 [JOIN ROOM] Syncing game state to database...`);
+    await createOrUpdateGame(room, games[room], userId, username);
 
     // Confirm successful join to the client
     socket.emit("joinedRoom");
 
-    // Notify all players of updated user list
-    const userList = Object.keys(games[room].users);
+    // Notify all players of updated user list (send usernames for display)
+    const userList = Object.values(games[room].users).map(u => u.username);
     io.to(room).emit("playerUpdate", userList);
 
     // Send previous messages
@@ -434,9 +454,9 @@ io.on("connection", (socket) => {
       winner: games[room].winner,
       loser: games[room].loser,
       truthDareSelection: games[room].truthDareSelection,
-      userChoice: games[room].choices[username] || null,
-      isWinner: games[room].winner === username,
-      isLoser: games[room].loser === username,
+      userChoice: games[room].choices[userId] || null,
+      isWinner: games[room].winner === userId,
+      isLoser: games[room].loser === userId,
     };
 
     // Emit full state restoration
@@ -444,8 +464,8 @@ io.on("connection", (socket) => {
 
     // Show truth/dare modal if appropriate
     if (games[room].awaitingTruthDare) {
-      const isLoser = games[room].loser === username;
-      const isWinner = games[room].winner === username;
+      const isLoser = games[room].loser === userId;
+      const isWinner = games[room].winner === userId;
 
       if (isLoser && !games[room].truthDareSelection) {
         socket.emit("showTruthDareModal", { type: "choose" });
@@ -454,85 +474,86 @@ io.on("connection", (socket) => {
       }
     }
 
-    // Create or update game in database
-    if (!dbGame) {
-      await createOrUpdateGame(room, username, games[room]);
-    }
-
     // Save current state to database (debounced)
     scheduleSaveGameState(room, games[room]);
 
     socket.on("makeChoice", async (choice) => {
-      // Get username from socket ID
-      const username = getUsernameBySocketId(room, socket.id);
-      if (!username) {
-        console.error('❌ makeChoice: Could not find username for socket', socket.id);
+      // Get userId from socket ID
+      const currentUserId = getUserIdBySocketId(room, socket.id);
+      if (!currentUserId) {
+        console.error('❌ makeChoice: Could not find userId for socket', socket.id);
         return;
       }
 
-      // Store choice using username as key
-      games[room].choices[username] = choice;
+      const currentUsername = getUsernameByUserId(room, currentUserId);
+
+      // Store choice using userId as key
+      games[room].choices[currentUserId] = choice;
       games[room].gamePhase = 'choosing';
 
       // Save system message for choice
-      const choiceMsg = await saveSystemMessage(room, `${username} chose ${choice}`);
+      const choiceMsg = await saveSystemMessage(room, `${currentUsername} chose ${choice}`);
       io.to(room).emit("newMessage", choiceMsg);
 
       // Check if both players have made their choices
       if (Object.keys(games[room].choices).length === 2) {
-        const [username1, username2] = Object.keys(games[room].choices);
-        const c1 = games[room].choices[username1];
-        const c2 = games[room].choices[username2];
+        const [userId1, userId2] = Object.keys(games[room].choices);
+        const c1 = games[room].choices[userId1];
+        const c2 = games[room].choices[userId2];
+
+        const username1 = getUsernameByUserId(room, userId1);
+        const username2 = getUsernameByUserId(room, userId2);
 
         const rules = { rock: "scissors", scissors: "paper", paper: "rock" };
         let result;
 
         if (c1 === c2) {
           // Tie - reset choices and stay in choosing phase
-          result = { [username1]: "It's a tie", [username2]: "It's a tie" };
+          result = { [userId1]: "It's a tie", [userId2]: "It's a tie" };
           games[room].choices = {};
           games[room].gamePhase = 'lobby';
 
           // Get socket IDs for sending results
-          const socketId1 = getSocketIdByUsername(room, username1);
-          const socketId2 = getSocketIdByUsername(room, username2);
+          const socketId1 = getSocketIdByUserId(room, userId1);
+          const socketId2 = getSocketIdByUserId(room, userId2);
 
           // Save system message for tie
           const tieMsg = await saveSystemMessage(room, `${username1}: It's a tie`);
           io.to(room).emit("newMessage", tieMsg);
 
-          if (socketId1) io.to(socketId1).emit("result", { message: result[username1] });
-          if (socketId2) io.to(socketId2).emit("result", { message: result[username2] });
+          if (socketId1) io.to(socketId1).emit("result", { message: result[userId1] });
+          if (socketId2) io.to(socketId2).emit("result", { message: result[userId2] });
         } else {
-          // Determine winner and loser (store usernames, not socket IDs)
-          const winnerUsername = rules[c1] === c2 ? username1 : username2;
-          const loserUsername = winnerUsername === username1 ? username2 : username1;
+          // Determine winner and loser (store userIds, not socket IDs)
+          const winnerUserId = rules[c1] === c2 ? userId1 : userId2;
+          const loserUserId = winnerUserId === userId1 ? userId2 : userId1;
+
+          const winnerUsername = getUsernameByUserId(room, winnerUserId);
+          const loserUsername = getUsernameByUserId(room, loserUserId);
 
           result = {
-            [winnerUsername]: "You win! You may ask a truth or give a dare.",
-            [loserUsername]: "You lose! Choose Truth or Dare.",
+            [winnerUserId]: "You win! You may ask a truth or give a dare.",
+            [loserUserId]: "You lose! Choose Truth or Dare.",
           };
 
-          // Update game state with winner/loser (usernames)
-          games[room].winner = winnerUsername;
-          games[room].loser = loserUsername;
+          // Update game state with winner/loser (userIds)
+          games[room].winner = winnerUserId;
+          games[room].loser = loserUserId;
           games[room].awaitingTruthDare = true;
           games[room].truthDareSelection = null;
           games[room].gamePhase = 'result';
 
           // Get socket IDs for emitting events
-          const winnerSocketId = getSocketIdByUsername(room, winnerUsername);
-          const loserSocketId = getSocketIdByUsername(room, loserUsername);
+          const winnerSocketId = getSocketIdByUserId(room, winnerUserId);
+          const loserSocketId = getSocketIdByUserId(room, loserUserId);
 
-          // Save system messages for win/lose
-          const winMsg = await saveSystemMessage(room, `${winnerUsername}: You win! You may ask a truth or give a dare.`);
-          const loseMsg = await saveSystemMessage(room, `${loserUsername}: You lose! Choose Truth or Dare.`);
+          // Save system messages for win/lose (customized for each player)
+          const winMsg = await saveSystemMessage(room, `${winnerUsername} won! ${loserUsername} must choose truth or dare.`);
           io.to(room).emit("newMessage", winMsg);
-          io.to(room).emit("newMessage", loseMsg);
 
           // Send results
-          if (winnerSocketId) io.to(winnerSocketId).emit("result", { message: result[winnerUsername] });
-          if (loserSocketId) io.to(loserSocketId).emit("result", { message: result[loserUsername] });
+          if (winnerSocketId) io.to(winnerSocketId).emit("result", { message: result[winnerUserId] });
+          if (loserSocketId) io.to(loserSocketId).emit("result", { message: result[loserUserId] });
 
           // Show modals
           if (loserSocketId) io.to(loserSocketId).emit("showTruthDareModal", { type: "choose" });
@@ -555,29 +576,63 @@ io.on("connection", (socket) => {
     });
 
     socket.on("truthOrDare", async (selection) => {
-      // Get username from socket ID
-      const username = getUsernameBySocketId(room, socket.id);
-      if (!username) {
-        console.error('❌ truthOrDare: Could not find username for socket', socket.id);
+      // Get userId from socket ID
+      const currentUserId = getUserIdBySocketId(room, socket.id);
+      if (!currentUserId) {
+        console.error('❌ truthOrDare: Could not find userId for socket', socket.id);
         return;
       }
 
+      const currentUsername = getUsernameByUserId(room, currentUserId);
+
       // Check if this user is the loser and truth/dare is awaited
-      if (games[room].awaitingTruthDare && games[room].loser === username) {
+      if (games[room].awaitingTruthDare && games[room].loser === currentUserId) {
         games[room].truthDareSelection = selection;
         games[room].awaitingTruthDare = false;
         games[room].gamePhase = 'chat';
 
-        // Save system message for truth/dare selection
-        const tdMsg = await saveSystemMessage(room, `${username} chose <strong>${selection}</strong>`);
-        io.to(room).emit("newMessage", tdMsg);
+        const winnerId = games[room].winner;
+        const winnerUsername = getUsernameByUserId(room, winnerId);
+        const winnerSocketId = getSocketIdByUserId(room, winnerId);
+        const loserSocketId = getSocketIdByUserId(room, currentUserId);
+
+        // currentUsername is the LOSER (the one making the selection)
+        const loserUsername = currentUsername;
+
+        // Send ONLY personalized messages to each player (no broadcast to room)
+        // Loser sees: "You chose truth"
+        if (loserSocketId) {
+          const loserMsg = {
+            id: uuidv4(),
+            room,
+            username: "System",
+            content: `You chose <strong>${selection}</strong>`,
+            type: "system"
+          };
+          io.to(loserSocketId).emit("newMessage", loserMsg);
+        }
+
+        // Winner sees: "LoserName selected truth" (NOT winnerName!)
+        if (winnerSocketId) {
+          const winnerMsg = {
+            id: uuidv4(),
+            room,
+            username: "System",
+            content: `${loserUsername} selected <strong>${selection}</strong>`,
+            type: "system"
+          };
+          io.to(winnerSocketId).emit("newMessage", winnerMsg);
+        }
+
+        // Save neutral message to database for chat history
+        await saveSystemMessage(room, `${currentUsername} chose <strong>${selection}</strong>`);
 
         // Hide modal for both players
         io.to(room).emit("hideTruthDareModal");
 
         // Notify both players of the selection
         io.to(room).emit("truthOrDareResponse", {
-          username: username,
+          username: currentUsername,
           selection,
         });
 
@@ -587,13 +642,14 @@ io.on("connection", (socket) => {
     });
 
     socket.on("sendMessage", async (msg) => {
-      // Get username from socket ID
-      const username = getUsernameBySocketId(room, socket.id);
-      if (!username) {
-        console.error('❌ sendMessage: Could not find username for socket', socket.id);
+      // Get userId from socket ID
+      const currentUserId = getUserIdBySocketId(room, socket.id);
+      if (!currentUserId) {
+        console.error('❌ sendMessage: Could not find userId for socket', socket.id);
         return;
       }
 
+      const currentUsername = getUsernameByUserId(room, currentUserId);
       const id = uuidv4();
 
       try {
@@ -604,13 +660,13 @@ io.on("connection", (socket) => {
         await drizzleDb.insert(messages).values({
           id,
           room,
-          username,
+          username: currentUsername,
           content: msg,
           type: "text",
           timestamp: new Date()
         });
 
-        io.to(room).emit("newMessage", { id, room, username, content: msg, type: "text" });
+        io.to(room).emit("newMessage", { id, room, username: currentUsername, content: msg, type: "text" });
       } catch (err) {
         console.error("Database error:", err);
       }
@@ -640,32 +696,33 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
       if (!games[room]) return;
 
-      // Get username from socket ID
-      const username = getUsernameBySocketId(room, socket.id);
-      if (!username) return;
+      // Get userId from socket ID
+      const currentUserId = getUserIdBySocketId(room, socket.id);
+      if (!currentUserId) return;
 
-      console.log(`🔌 User "${username}" disconnected from room ${room}`);
+      const currentUsername = getUsernameByUserId(room, currentUserId);
+      console.log(`🔌 User "${currentUsername}" (${currentUserId}) disconnected from room ${room}`);
 
       // Mark user as disconnected (set socket to null, keep game state)
       // This allows the user to reconnect and restore their state
-      games[room].users[username] = null;
+      games[room].users[currentUserId] = { socketId: null, username: currentUsername };
 
       // Get list of CONNECTED users (exclude those with null socket IDs)
-      const connectedUsers = Object.keys(games[room].users).filter(
-        user => games[room].users[user] !== null
-      );
+      const connectedUsernames = Object.values(games[room].users)
+        .filter(u => u.socketId !== null)
+        .map(u => u.username);
 
       // Notify remaining connected players
-      io.to(room).emit("playerUpdate", connectedUsers);
+      io.to(room).emit("playerUpdate", connectedUsernames);
 
       // If no connected users, schedule cleanup after timeout
-      if (connectedUsers.length === 0) {
+      if (connectedUsernames.length === 0) {
         console.log(`⏱️  Room ${room} empty, scheduling cleanup in 5 minutes`);
         setTimeout(() => {
           // Check again if room still has no connected users
           if (games[room]) {
-            const stillConnected = Object.keys(games[room].users).filter(
-              user => games[room].users[user] !== null
+            const stillConnected = Object.values(games[room].users).filter(
+              u => u.socketId !== null
             );
             if (stillConnected.length === 0) {
               console.log(`🧹 Cleaning up empty room: ${room}`);
@@ -683,37 +740,38 @@ io.on("connection", (socket) => {
     socket.on("leaveRoom", () => {
       if (!games[room]) return;
 
-      const username = getUsernameBySocketId(room, socket.id);
-      if (!username) return;
+      const currentUserId = getUserIdBySocketId(room, socket.id);
+      if (!currentUserId) return;
 
-      console.log(`🚪 User "${username}" left room ${room}`);
+      const currentUsername = getUsernameByUserId(room, currentUserId);
+      console.log(`🚪 User "${currentUsername}" (${currentUserId}) left room ${room}`);
 
       // Remove user completely (intentional leave, not temporary disconnect)
-      delete games[room].users[username];
+      delete games[room].users[currentUserId];
 
       // Also clear their choices and other state
       if (games[room].choices) {
-        delete games[room].choices[username];
+        delete games[room].choices[currentUserId];
       }
 
       // Reset winner/loser if they were this user
-      if (games[room].winner === username) {
+      if (games[room].winner === currentUserId) {
         games[room].winner = null;
       }
-      if (games[room].loser === username) {
+      if (games[room].loser === currentUserId) {
         games[room].loser = null;
       }
 
       socket.leave(room);
 
-      // Get remaining users
-      const remainingUsers = Object.keys(games[room].users);
+      // Get remaining usernames for display
+      const remainingUsernames = Object.values(games[room].users).map(u => u.username);
 
       // Notify remaining players
-      io.to(room).emit("playerUpdate", remainingUsers);
+      io.to(room).emit("playerUpdate", remainingUsernames);
 
       // If room empty, clean up immediately (no timeout)
-      if (remainingUsers.length === 0) {
+      if (remainingUsernames.length === 0) {
         console.log(`🧹 Cleaning up empty room: ${room}`);
         delete games[room];
       } else {

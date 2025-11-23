@@ -163,16 +163,20 @@ async function syncGamePhase(roomCode, phase) {
 }
 
 /**
- * Create or update a game record with minimal data
- * Useful for ensuring a game exists before saving full state
+ * Create or update a game record with user IDs
+ * Useful for ensuring a game exists and has proper user associations
  * @param {string} roomCode - The room code
- * @param {string} creatorUsername - Creator's username
- * @param {Object} initialState - Initial game state
+ * @param {Object} gameState - Current in-memory game state
+ * @param {string} userId - User ID of the joining user
+ * @param {string} username - Username of the joining user
  * @returns {Promise<string|null>} Game ID or null on failure
  */
-async function createOrUpdateGame(roomCode, creatorUsername, initialState = {}) {
+async function createOrUpdateGame(roomCode, gameState, userId, username) {
   try {
     const db = getDatabase();
+    const userType = userId?.startsWith('anon_') ? 'anonymous' : 'authenticated';
+
+    console.log(`💾 [DB SYNC] Syncing game for room ${roomCode}, user ${username} (${userType}: ${userId})`);
 
     const existingGame = await db
       .select()
@@ -180,31 +184,83 @@ async function createOrUpdateGame(roomCode, creatorUsername, initialState = {}) 
       .where(eq(games.room_code, roomCode))
       .limit(1);
 
+    const now = new Date();
+    const userIds = Object.keys(gameState.users || {});
+
+    // Determine creator and opponent based on join order
+    let creatorId = null;
+    let opponentId = null;
+
+    if (userIds.length === 1) {
+      // First user is creator
+      creatorId = userIds[0];
+      console.log(`👤 [DB SYNC] Single user - setting as creator: ${creatorId}`);
+    } else if (userIds.length === 2) {
+      // Two users: assign creator and opponent
+      creatorId = userIds[0];
+      opponentId = userIds[1];
+      console.log(`👥 [DB SYNC] Two users - creator: ${creatorId}, opponent: ${opponentId}`);
+    }
+
     if (existingGame.length > 0) {
+      console.log(`🔄 [DB SYNC] Game exists in database, updating...`);
+      console.log(`   Existing - creator: ${existingGame[0].creator_id}, opponent: ${existingGame[0].opponent_id}`);
+
+      // Update existing game with participant info
+      const updates = {
+        updated_at: now,
+      };
+
+      // Only update opponent_id if it's null and we have a second player
+      if (!existingGame[0].opponent_id && opponentId) {
+        updates.opponent_id = opponentId;
+        updates.status = 'in_progress';
+        console.log(`   ➕ Adding opponent: ${opponentId}, status → in_progress`);
+      }
+
+      await db
+        .update(games)
+        .set(updates)
+        .where(eq(games.room_code, roomCode));
+
+      console.log(`✅ [DB SYNC] Game record updated for room: ${roomCode}`);
       return existingGame[0].id;
     }
 
+    // Create new game
+    console.log(`🆕 [DB SYNC] Creating new game record...`);
     const gameId = uuidv4();
-    const now = new Date();
 
     await db.insert(games).values({
       id: gameId,
       room_code: roomCode,
-      creator_id: null, // We're using usernames, not user IDs
-      opponent_id: null,
-      status: 'waiting',
+      creator_id: creatorId,
+      opponent_id: opponentId,
+      status: userIds.length === 2 ? 'in_progress' : 'waiting',
       current_turn: null,
-      game_state: JSON.stringify(initialState),
-      game_phase: 'lobby',
+      game_state: JSON.stringify({
+        users: gameState.users || {},
+        choices: gameState.choices || {},
+        winner: gameState.winner || null,
+        loser: gameState.loser || null,
+        chatVisible: gameState.chatVisible || false,
+        awaitingTruthDare: gameState.awaitingTruthDare || false,
+        truthDareSelection: gameState.truthDareSelection || null,
+      }),
+      game_phase: gameState.gamePhase || 'lobby',
       winner_id: null,
       created_at: now,
       updated_at: now,
     });
 
-    console.log(`✅ Game record created for room: ${roomCode}`);
+    console.log(`✅ [DB SYNC] Game record created - ID: ${gameId}, Room: ${roomCode}`);
+    console.log(`   Creator: ${creatorId || 'NULL'}`);
+    console.log(`   Opponent: ${opponentId || 'waiting'}`);
+    console.log(`   Status: ${userIds.length === 2 ? 'in_progress' : 'waiting'}`);
+
     return gameId;
   } catch (error) {
-    console.error('❌ Error creating game:', error);
+    console.error('❌ [DB SYNC] Error creating/updating game:', error);
     return null;
   }
 }
