@@ -79,7 +79,7 @@ A modern, real-time multiplayer Truth or Dare game with Rock, Paper, Scissors me
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/truth_or_dare.git
+   git clone https://github.com/kitaroghope/truth_or_dare.git
    cd truth_or_dare
    ```
 
