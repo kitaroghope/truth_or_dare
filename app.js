@@ -24,6 +24,7 @@ const friendsRoutes = require('./routes/friends');
 const gamesRoutes = require('./routes/games');
 const notificationsRoutes = require('./routes/notifications');
 const { heartbeatOnlineUsers } = require('./utils/onlineStatus');
+const { startCleanupJob } = require('./utils/mediaCleanup');
 // DISABLED: Duplicate socket system (conflicts with main game socket handlers)
 // const { authenticateSocket, setupSocketHandlers } = require('./socket');
 const { apiLimiter } = require('./middleware/rateLimiter');
@@ -835,6 +836,9 @@ async function startServer() {
       setInterval(() => {
         heartbeatOnlineUsers();
       }, 2 * 60 * 1000);
+
+      // Start media auto-delete cleanup job (runs every minute)
+      startCleanupJob();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

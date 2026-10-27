@@ -179,6 +179,43 @@ function showSessionTransferModal() {
   });
 }
 
+// Help Modal Functions
+function showHelpModal() {
+  document.getElementById('helpModal').style.display = 'flex';
+}
+
+function closeHelpModal() {
+  document.getElementById('helpModal').style.display = 'none';
+}
+
+function switchHelpTab(tabName) {
+  // Hide all tabs
+  document.querySelectorAll('.help-tab-content').forEach(content => {
+    content.style.display = 'none';
+  });
+
+  // Remove active class from all tab buttons
+  document.querySelectorAll('[id^="tab-"]').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  // Show selected tab
+  document.getElementById(`content-${tabName}`).style.display = 'block';
+  document.getElementById(`tab-${tabName}`).classList.add('active');
+}
+
+// Close help modal on background click
+document.addEventListener('DOMContentLoaded', () => {
+  const helpModal = document.getElementById('helpModal');
+  if (helpModal) {
+    helpModal.addEventListener('click', (e) => {
+      if (e.target === helpModal) {
+        closeHelpModal();
+      }
+    });
+  }
+});
+
 const setupDiv = document.getElementById("setup");
 const gameUI = document.getElementById("gameUI");
 const roomLabel = document.getElementById("roomLabel");

@@ -264,13 +264,10 @@
   <div class="admin-card">
     <!-- Controls -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h3>💬 All Users</h3>
+      <h3>📊 Dashboard Statistics</h3>
       <div>
-        <button class="btn btn-primary me-2" onclick="loadConversations()">
+        <button class="btn btn-primary me-2" onclick="loadStatistics()">
           🔄 Refresh
-        </button>
-        <button class="btn btn-danger" onclick="clearAllConversations()" style="display: none;" id="clearBtn">
-          🗑️ Clear All
         </button>
         <button class="btn btn-outline-secondary" onclick="logout()">
           🚪 Logout
@@ -281,52 +278,55 @@
       </div>
     </div>
 
+    <!-- Privacy Notice -->
+    <div class="alert alert-info" role="alert" style="background: rgba(108, 92, 231, 0.1); border-left: 4px solid var(--primary-color); border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem;">
+      <strong>🔒 Privacy Notice:</strong> All messages are end-to-end encrypted. Message content is not accessible to administrators for user privacy protection.
+    </div>
+
     <!-- Statistics -->
-    <div class="stats-row" id="statsRow" style="display: none;">
+    <div class="stats-row" id="statsRow" style="display: flex;">
       <div class="stat-card">
         <div class="stat-number" id="totalRooms">0</div>
-        <div class="stat-label">Total Rooms</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-number" id="totalMessages">0</div>
-        <div class="stat-label">Total Messages</div>
+        <div class="stat-label">Active Rooms</div>
       </div>
       <div class="stat-card">
         <div class="stat-number" id="totalUsers">0</div>
-        <div class="stat-label">Unique Users</div>
+        <div class="stat-label">Total Users</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number" id="totalFiles">0</div>
-        <div class="stat-label">Files Shared</div>
+        <div class="stat-number" id="totalGames">0</div>
+        <div class="stat-label">Games Played</div>
       </div>
-    </div>
-
-    <!-- Filters -->
-    <div class="filters" id="filtersRow" style="display: none;">
-      <input type="text" class="filter-input" id="roomFilter" placeholder="Filter by room..." onkeyup="filterConversations()">
-      <input type="text" class="filter-input" id="userFilter" placeholder="Filter by username..." onkeyup="filterConversations()">
-      <select class="filter-input" id="typeFilter" onchange="filterConversations()">
-        <option value="">All message types</option>
-        <option value="text">Text only</option>
-        <option value="audio">Audio only</option>
-        <option value="file">Files only</option>
-      </select>
+      <div class="stat-card">
+        <div class="stat-number" id="filesSharedToday">0</div>
+        <div class="stat-label">Files Today</div>
+      </div>
     </div>
 
     <!-- Loading State -->
-    <div id="loadingState" class="loading">
+    <div id="loadingState" class="loading" style="display: none;">
       <div class="loading-spinner"></div>
-      <p>Loading conversations...</p>
+      <p>Loading statistics...</p>
     </div>
 
-    <!-- Empty State -->
-    <div id="emptyState" class="empty-state" style="display: none;">
-      <h3>📭 No Conversations Found</h3>
-      <p>No chat messages have been recorded yet. Start a game to see conversations here!</p>
+    <!-- Additional Info -->
+    <div class="admin-card mt-3" style="background: rgba(255, 255, 255, 0.8); padding: 1.5rem;">
+      <h4 style="color: var(--primary-color); margin-bottom: 1rem;">ℹ️ System Information</h4>
+      <ul style="list-style: none; padding: 0;">
+        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.1);">
+          <strong>🔒 Encryption:</strong> End-to-end encrypted messages (AES-256-GCM)
+        </li>
+        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.1);">
+          <strong>🗑️ Auto-Delete:</strong> Media files deleted after 5 minutes
+        </li>
+        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.1);">
+          <strong>👤 Privacy:</strong> Anonymous play supported, no tracking
+        </li>
+        <li style="padding: 0.5rem 0;">
+          <strong>🔐 Admin Access:</strong> Statistics only, no message content
+        </li>
+      </ul>
     </div>
-
-    <!-- Conversations List -->
-    <div id="conversationsList"></div>
   </div>
 
   <!-- Login Modal -->
@@ -354,15 +354,13 @@
   </div>
 
   <script>
-    let allConversations = [];
-    let filteredConversations = [];
     let authToken = localStorage.getItem('adminToken');
 
     // Check authentication on page load
     window.addEventListener('DOMContentLoaded', () => {
       if (authToken) {
         hideLoginModal();
-        loadConversations();
+        loadStatistics();
       } else {
         showLoginModal();
       }
@@ -398,7 +396,7 @@
           authToken = data.token;
           localStorage.setItem('adminToken', authToken);
           hideLoginModal();
-          loadConversations();
+          loadStatistics();
           errorDiv.style.display = 'none';
         } else {
           errorDiv.textContent = data.message || 'Login failed';
@@ -426,210 +424,59 @@
       authToken = null;
       localStorage.removeItem('adminToken');
       showLoginModal();
-      document.getElementById('conversationsList').innerHTML = '';
       document.getElementById('statsRow').style.display = 'none';
-      document.getElementById('filtersRow').style.display = 'none';
     }
 
-    async function loadConversations() {
+    async function loadStatistics() {
       showLoading();
-      
+
       try {
-        const response = await fetch('/api/admin/conversations', {
+        const response = await fetch('/api/admin/stats', {
           headers: {
             'Authorization': `Bearer ${authToken}`
           }
         });
-        
+
         if (response.status === 401) {
           // Token expired or invalid
           logout();
           return;
         }
-        
+
         if (!response.ok) {
-          throw new Error('Failed to fetch conversations');
+          throw new Error('Failed to fetch statistics');
         }
-        
+
         const data = await response.json();
-        allConversations = data.conversations || [];
-        filteredConversations = [...allConversations];
-        
         displayStatistics(data.stats);
-        displayConversations();
-        
-        document.getElementById('statsRow').style.display = 'flex';
-        document.getElementById('filtersRow').style.display = 'flex';
-        document.getElementById('clearBtn').style.display = allConversations.length > 0 ? 'inline-block' : 'none';
-        
+        hideLoading();
+
       } catch (error) {
-        console.error('Error loading conversations:', error);
-        showError('Failed to load conversations. Please try again.');
+        console.error('Error loading statistics:', error);
+        showError('Failed to load statistics. Please try again.');
       }
     }
 
     function showLoading() {
       document.getElementById('loadingState').style.display = 'block';
-      document.getElementById('emptyState').style.display = 'none';
-      document.getElementById('conversationsList').innerHTML = '';
+      document.getElementById('statsRow').style.display = 'none';
+    }
+
+    function hideLoading() {
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('statsRow').style.display = 'flex';
     }
 
     function showError(message) {
       document.getElementById('loadingState').style.display = 'none';
-      document.getElementById('conversationsList').innerHTML = `
-        <div class="alert alert-danger" role="alert">
-          <strong>Error:</strong> ${message}
-        </div>
-      `;
+      alert(message);
     }
 
     function displayStatistics(stats) {
       document.getElementById('totalRooms').textContent = stats.totalRooms || 0;
-      document.getElementById('totalMessages').textContent = stats.totalMessages || 0;
       document.getElementById('totalUsers').textContent = stats.totalUsers || 0;
-      document.getElementById('totalFiles').textContent = stats.totalFiles || 0;
-    }
-
-    function displayConversations() {
-      document.getElementById('loadingState').style.display = 'none';
-      
-      if (filteredConversations.length === 0) {
-        document.getElementById('emptyState').style.display = 'block';
-        document.getElementById('conversationsList').innerHTML = '';
-        return;
-      }
-      
-      document.getElementById('emptyState').style.display = 'none';
-      
-      const conversationsList = document.getElementById('conversationsList');
-      conversationsList.innerHTML = '';
-      
-      // Group messages by room
-      const roomGroups = {};
-      filteredConversations.forEach(msg => {
-        if (!roomGroups[msg.room]) {
-          roomGroups[msg.room] = [];
-        }
-        roomGroups[msg.room].push(msg);
-      });
-      
-      // Display each room's conversation
-      Object.keys(roomGroups).forEach(roomId => {
-        const messages = roomGroups[roomId];
-        const conversationDiv = createConversationElement(roomId, messages);
-        conversationsList.appendChild(conversationDiv);
-      });
-    }
-
-    function createConversationElement(roomId, messages) {
-      const div = document.createElement('div');
-      div.className = 'conversation-item';
-      
-      const users = [...new Set(messages.map(m => m.username))];
-      const messageCount = messages.length;
-      const firstMessage = messages[0];
-      const lastMessage = messages[messages.length - 1];
-      
-      div.innerHTML = `
-        <div class="conversation-header">
-          <div>
-            <strong>🏠 Room: ${roomId}</strong>
-            <span class="message-type type-text">${messageCount} messages</span>
-          </div>
-          <div style="font-size: 0.8rem; color: #666;">
-            👥 ${users.join(', ')}
-          </div>
-        </div>
-        <div class="conversation-meta">
-          📅 ${formatDate(firstMessage.timestamp)} - ${formatDate(lastMessage.timestamp)}
-        </div>
-        <div class="messages-container">
-          ${messages.map(msg => createMessageElement(msg)).join('')}
-        </div>
-      `;
-      
-      return div;
-    }
-
-    function createMessageElement(message) {
-      const typeClass = `type-${message.type}`;
-      let content = message.content;
-      
-      // Handle different message types
-      if (message.type === 'audio') {
-        content = `<audio controls src="${message.content}"></audio>`;
-      } else if (message.type === 'file') {
-        const fileName = message.content.split('/').pop();
-        content = `<a href="${message.content}" target="_blank">📎 ${fileName}</a>`;
-      }
-      
-      return `
-        <div class="message-item">
-          <div class="message-header">
-            <span class="message-username">${message.username}</span>
-            <div>
-              <span class="message-type ${typeClass}">${message.type}</span>
-              <span class="message-timestamp">${formatTime(message.timestamp)}</span>
-            </div>
-          </div>
-          <div class="message-content">${content}</div>
-        </div>
-      `;
-    }
-
-    function filterConversations() {
-      const roomFilter = document.getElementById('roomFilter').value.toLowerCase();
-      const userFilter = document.getElementById('userFilter').value.toLowerCase();
-      const typeFilter = document.getElementById('typeFilter').value;
-      
-      filteredConversations = allConversations.filter(msg => {
-        const matchesRoom = !roomFilter || msg.room.toLowerCase().includes(roomFilter);
-        const matchesUser = !userFilter || msg.username.toLowerCase().includes(userFilter);
-        const matchesType = !typeFilter || msg.type === typeFilter;
-        
-        return matchesRoom && matchesUser && matchesType;
-      });
-      
-      displayConversations();
-    }
-
-    async function clearAllConversations() {
-      if (!confirm('Are you sure you want to delete ALL conversations? This action cannot be undone.')) {
-        return;
-      }
-      
-      try {
-        const response = await fetch('/api/admin/conversations', {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${authToken}`
-          }
-        });
-        
-        if (response.status === 401) {
-          logout();
-          return;
-        }
-        
-        if (!response.ok) {
-          throw new Error('Failed to clear conversations');
-        }
-        
-        alert('All conversations have been cleared successfully.');
-        loadConversations();
-        
-      } catch (error) {
-        console.error('Error clearing conversations:', error);
-        alert('Failed to clear conversations. Please try again.');
-      }
-    }
-
-    function formatDate(timestamp) {
-      return new Date(timestamp).toLocaleDateString();
-    }
-
-    function formatTime(timestamp) {
-      return new Date(timestamp).toLocaleTimeString();
+      document.getElementById('totalGames').textContent = stats.totalGames || 0;
+      document.getElementById('filesSharedToday').textContent = stats.filesSharedToday || 0;
     }
   </script>
 </body>

@@ -824,12 +824,17 @@
   <div class="app-header">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1 class="app-title mb-0">🎲 Truth or Dare</h1>
-      <div id="authButtons" class="btn-group">
-        <button class="btn btn-sm btn-outline-light" onclick="showSessionTransferModal()" title="Transfer your session to another device">
-          📱 Transfer Session
+      <div class="d-flex gap-2 align-items-center">
+        <button class="btn btn-sm btn-outline-light" onclick="showHelpModal()" title="Help & User Guide">
+          ❓ Help
         </button>
-        <button class="btn btn-sm btn-outline-light" onclick="showLoginModal()">Login</button>
-        <button class="btn btn-sm btn-light" onclick="showSignupModal()">Sign Up</button>
+        <div id="authButtons" class="btn-group">
+          <button class="btn btn-sm btn-outline-light" onclick="showSessionTransferModal()" title="Transfer your session to another device">
+            📱 Transfer Session
+          </button>
+          <button class="btn btn-sm btn-outline-light" onclick="showLoginModal()">Login</button>
+          <button class="btn btn-sm btn-light" onclick="showSignupModal()">Sign Up</button>
+        </div>
       </div>
       <div id="userMenu" class="dropdown" style="display: none;">
         <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="userMenuBtn" data-bs-toggle="dropdown">
@@ -1207,6 +1212,106 @@
           <button type="button" class="modal-btn modal-btn-dare" onclick="closeEmailInviteModal()">Cancel</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ========== HELP MODAL ========== -->
+  <div id="helpModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 700px; max-height: 85vh; overflow-y: auto;">
+      <div class="modal-title">📖 Truth or Dare - User Guide</div>
+
+      <!-- Tabs -->
+      <div class="d-flex gap-2 mb-3" style="border-bottom: 2px solid rgba(108, 92, 231, 0.2); padding-bottom: 10px;">
+        <button class="btn btn-sm btn-outline-primary active" onclick="switchHelpTab('howto')" id="tab-howto">How to Play</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="switchHelpTab('privacy')" id="tab-privacy">Privacy</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="switchHelpTab('faq')" id="tab-faq">FAQ</button>
+      </div>
+
+      <!-- How to Play Tab -->
+      <div class="help-tab-content" id="content-howto">
+        <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🎮 How to Play</h4>
+        <ol style="line-height: 1.8;">
+          <li><strong>Create a Room:</strong> Click "Create Room" to start a new game</li>
+          <li><strong>Invite Friends:</strong> Share the invite link or room code with your friend</li>
+          <li><strong>Play Rock-Paper-Scissors:</strong> Both players choose Rock, Paper, or Scissors</li>
+          <li><strong>Winner Picks:</strong> The winner decides if the loser does Truth or Dare</li>
+          <li><strong>Complete Challenge:</strong> Loser answers the truth question or completes the dare</li>
+          <li><strong>Next Round:</strong> Play another round or end the game</li>
+        </ol>
+
+        <h5 style="color: var(--secondary-color); margin-top: 1.5rem; margin-bottom: 0.5rem;">🎲 Game Rules</h5>
+        <ul style="line-height: 1.8;">
+          <li>Rock beats Scissors</li>
+          <li>Scissors beats Paper</li>
+          <li>Paper beats Rock</li>
+          <li>If both choose the same, it's a tie - play again!</li>
+        </ul>
+      </div>
+
+      <!-- Privacy Tab -->
+      <div class="help-tab-content" id="content-privacy" style="display: none;">
+        <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🔒 Privacy & Security</h4>
+        <div style="line-height: 1.8;">
+          <div style="background: rgba(108, 92, 231, 0.1); padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
+            <h6 style="color: var(--primary-color);">🔐 End-to-End Encryption</h6>
+            <p>All your messages are encrypted using AES-256-GCM encryption. Only you and your opponent can read them.</p>
+          </div>
+
+          <div style="background: rgba(253, 121, 168, 0.1); padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
+            <h6 style="color: var(--secondary-color);">🗑️ Auto-Delete Media</h6>
+            <p>Files you upload (images, audio, videos) automatically delete after <strong>5 minutes</strong> for your privacy.</p>
+          </div>
+
+          <div style="background: rgba(0, 184, 148, 0.1); padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
+            <h6 style="color: var(--success-color);">👤 Anonymous Play</h6>
+            <p>No signup required! Play anonymously with any username. Admins cannot see your messages.</p>
+          </div>
+
+          <div style="background: rgba(253, 203, 110, 0.1); padding: 1rem; border-radius: 10px;">
+            <h6 style="color: var(--warning-color);">🔗 Secure Connection</h6>
+            <p>All data is transmitted over HTTPS/WSS (secure WebSocket) for maximum protection.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- FAQ Tab -->
+      <div class="help-tab-content" id="content-faq" style="display: none;">
+        <h4 style="color: var(--primary-color); margin-bottom: 1rem;">❓ Frequently Asked Questions</h4>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">Can I play with more than 2 people?</summary>
+          <p style="margin-top: 0.5rem;">Currently, the game is designed for 1v1 matches. Multiplayer support may be added in future updates.</p>
+        </details>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">Are my messages private?</summary>
+          <p style="margin-top: 0.5rem;">Yes! Messages are end-to-end encrypted. Only you and your opponent can read them. Administrators cannot access message content.</p>
+        </details>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">How long do uploaded files last?</summary>
+          <p style="margin-top: 0.5rem;">All media files (audio, images, videos) automatically delete after 5 minutes for your privacy.</p>
+        </details>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">Do I need to create an account?</summary>
+          <p style="margin-top: 0.5rem;">No! You can play anonymously with any username. Accounts are optional for saving game history and stats.</p>
+        </details>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">What happens if I lose connection?</summary>
+          <p style="margin-top: 0.5rem;">If you disconnect, your room stays active for a short time. Rejoin with the same room code to continue your game.</p>
+        </details>
+
+        <details style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.5); border-radius: 8px;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">Can I transfer my session to another device?</summary>
+          <p style="margin-top: 0.5rem;">Yes! Click "📱 Transfer Session" in the header to get a link you can open on another device.</p>
+        </details>
+      </div>
+
+      <div class="modal-buttons mt-3">
+        <button class="modal-btn modal-btn-dare" onclick="closeHelpModal()">Close</button>
+      </div>
     </div>
   </div>
 
